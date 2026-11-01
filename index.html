@@ -1,0 +1,2535 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Board · 게시판</title>
+  <script src="gh-store.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── 리셋 ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    [hidden] { display: none !important; }
+
+    /* ── 색 토큰 (밝은 화면) ── */
+    :root {
+      --bg:          #f3f3f5;
+      --surface:     #ffffff;
+      --surface2:    #ebebf0;
+      --border:      #d6d6de;
+      --accent:      #e8c97e;
+      --accent2:     #dcb862;
+      --accent-ink:  #7d5c14;
+      --accent-soft: rgba(232,201,126,.28);
+      --on-accent:   #1a1606;
+      --text:        #19191d;
+      --muted:       #5f5f6b;
+      --danger:      #b83232;
+      --danger-soft: rgba(184,50,50,.10);
+      --success:     #2a7d41;
+      --info:        #2b6cb0;
+      --info-btn:    #2f6db0;
+      --info-soft:   rgba(43,108,176,.14);
+      --code-bg:     #f7f7f9;
+      --code-fg:     #26262b;
+      --mine-bg:     rgba(232,201,126,.26);
+      --mine-border: rgba(125,92,20,.38);
+      --shadow:      0 8px 32px rgba(20,20,30,.18);
+      --backdrop:    rgba(20,20,28,.45);
+      --radius:      14px;
+      --card-r:      18px;
+      color-scheme: light;
+    }
+
+    /* ── 색 토큰 (어두운 화면 · 원래 디자인) ── */
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg:          #0f0f11;
+        --surface:     #18181c;
+        --surface2:    #222228;
+        --border:      #2e2e38;
+        --accent:      #e8c97e;
+        --accent2:     #c4a35a;
+        --accent-ink:  #e8c97e;
+        --accent-soft: rgba(232,201,126,.16);
+        --on-accent:   #111111;
+        --text:        #eeeef0;
+        --muted:       #888898;
+        --danger:      #e05c5c;
+        --danger-soft: rgba(224,92,92,.12);
+        --success:     #5cb85c;
+        --info:        #5b9bd5;
+        --info-btn:    #2f6db0;
+        --info-soft:   rgba(91,155,213,.18);
+        --code-bg:     #0c0c0e;
+        --code-fg:     #d7d7dd;
+        --mine-bg:     rgba(232,201,126,.12);
+        --mine-border: rgba(232,201,126,.35);
+        --shadow:      0 8px 32px rgba(0,0,0,.5);
+        --backdrop:    rgba(0,0,0,.68);
+        color-scheme: dark;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg:          #0f0f11;
+      --surface:     #18181c;
+      --surface2:    #222228;
+      --border:      #2e2e38;
+      --accent:      #e8c97e;
+      --accent2:     #c4a35a;
+      --accent-ink:  #e8c97e;
+      --accent-soft: rgba(232,201,126,.16);
+      --on-accent:   #111111;
+      --text:        #eeeef0;
+      --muted:       #888898;
+      --danger:      #e05c5c;
+      --danger-soft: rgba(224,92,92,.12);
+      --success:     #5cb85c;
+      --info:        #5b9bd5;
+      --info-btn:    #2f6db0;
+      --info-soft:   rgba(91,155,213,.18);
+      --code-bg:     #0c0c0e;
+      --code-fg:     #d7d7dd;
+      --mine-bg:     rgba(232,201,126,.12);
+      --mine-border: rgba(232,201,126,.35);
+      --shadow:      0 8px 32px rgba(0,0,0,.5);
+      --backdrop:    rgba(0,0,0,.68);
+      color-scheme: dark;
+    }
+
+    :root {
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+    html, body {
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    /* ── 배경 그레인 ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+    }
+
+    /* ── 레이아웃 ── */
+    #app { position: relative; z-index: 1; max-width: 720px; margin: 0 auto; padding: 0 16px 80px; }
+
+    /* ── 헤더 ── */
+    header {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 28px 0 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      font-family: 'DM Serif Display', Georgia, 'Times New Roman', serif;
+      font-size: 28px;
+      color: var(--accent-ink);
+      letter-spacing: -0.5px;
+    }
+    .logo span { color: var(--muted); font-style: italic; font-size: 14px; margin-left: 8px; }
+
+    #user-badge { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    #user-badge img {
+      width: 36px; height: 36px; flex-shrink: 0;
+      border-radius: 50%;
+      border: 2px solid var(--accent);
+      object-fit: cover;
+    }
+    #user-badge .name  { font-weight: 500; font-size: 14px; }
+    #user-badge .email { font-size: 12px; color: var(--muted); }
+
+    /* ── 버튼 ── */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 10px 20px; border-radius: 999px;
+      font-family: inherit; font-size: 14px; font-weight: 500;
+      cursor: pointer; border: none; transition: all .2s ease;
+      white-space: nowrap;
+    }
+    .btn-primary { background: var(--accent); color: var(--on-accent); }
+    .btn-primary:hover { background: var(--accent2); transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    .btn-ghost {
+      background: transparent; color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { border-color: var(--accent-ink); color: var(--accent-ink); }
+
+    .btn-danger {
+      background: transparent; color: var(--danger);
+      border: none; padding: 4px 8px; font-size: 12px; border-radius: 6px;
+    }
+    .btn-danger:hover { background: var(--danger-soft); }
+    .btn-sm { padding: 6px 14px; font-size: 13px; }
+    .btn-dl {
+      background: var(--info-btn); color: #fff; padding: 4px 10px; font-size: 12px;
+      border-radius: 6px; border: 1px solid transparent; font-family: inherit;
+      display: inline-flex; align-items: center; cursor: pointer; white-space: nowrap;
+    }
+    .btn-dl:hover { opacity: .88; }
+    .btn-dl:disabled { opacity: .5; cursor: progress; }
+    .btn-dl.alt { background: var(--surface2); color: var(--muted); border-color: var(--border); }
+
+    /* ── 탭 ── */
+    #tab-nav {
+      display: flex; gap: 0; padding: 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 28px; overflow-x: auto;
+    }
+    .tab-btn {
+      display: flex; align-items: center; gap: 7px;
+      padding: 14px 20px; background: none; border: none;
+      color: var(--muted); font-family: inherit; font-size: 14px; font-weight: 500;
+      cursor: pointer; border-bottom: 2px solid transparent;
+      transition: all .2s; margin-bottom: -1px; white-space: nowrap;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent-ink); border-bottom-color: var(--accent-ink); }
+
+    /* ── 첫 화면(실행 불가 안내) ── */
+    #gate {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; min-height: 70vh; gap: 24px; text-align: center;
+    }
+    #gate .headline {
+      font-family: 'DM Serif Display', Georgia, 'Times New Roman', serif;
+      font-size: 48px; line-height: 1.1;
+      color: var(--text);
+    }
+    #gate .headline em { color: var(--accent-ink); font-style: italic; }
+    #gate .sub { color: var(--text); font-size: 16px; font-weight: 500; max-width: 380px; }
+    .gate-note { font-size: 13px; color: var(--muted); max-width: 380px; line-height: 1.7; }
+
+    /* ── 안내 줄 ── */
+    .notice {
+      background: var(--surface); border: 1px solid var(--border);
+      border-left: 3px solid var(--accent-ink);
+      border-radius: var(--radius); padding: 12px 16px;
+      font-size: 13px; color: var(--muted); margin-bottom: 20px; line-height: 1.7;
+    }
+
+    /* ── 패널 ── */
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* ═══════════════════════════════
+       게시판
+    ═══════════════════════════════ */
+    #compose {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--card-r);
+      padding: 20px;
+      margin-bottom: 28px;
+    }
+    #compose-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    #compose-header img { width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--accent); object-fit: cover; }
+    #compose-header .me { font-weight: 500; font-size: 14px; }
+
+    textarea {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: inherit; font-size: 15px; line-height: 1.6;
+      padding: 14px 16px;
+      resize: vertical; min-height: 100px;
+      transition: border-color .2s; outline: none;
+    }
+    textarea:focus { border-color: var(--accent-ink); }
+    textarea::placeholder { color: var(--muted); }
+    textarea:disabled { opacity: .6; cursor: not-allowed; }
+
+    #compose-footer { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 12px; }
+    #char-count { font-size: 12px; color: var(--muted); }
+
+    #feed { display: flex; flex-direction: column; gap: 16px; }
+    .post-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--card-r);
+      padding: 20px;
+    }
+    .post-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .post-header img { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border); flex-shrink: 0; }
+    .post-header .meta { flex: 1; min-width: 0; }
+    .post-header .author { font-weight: 600; font-size: 14px; }
+    .post-header .date   { font-size: 12px; color: var(--muted); margin-top: 1px; }
+    .post-content { font-size: 15px; color: var(--text); white-space: pre-wrap; word-break: break-word; line-height: 1.7; padding-left: 54px; }
+
+    /* ═══════════════════════════════
+       파일 전송
+    ═══════════════════════════════ */
+    .section-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--card-r); padding: 22px; margin-bottom: 22px;
+    }
+    .section-title {
+      font-size: 12px; font-weight: 700; letter-spacing: .1em;
+      color: var(--muted); margin-bottom: 16px;
+    }
+
+    #drop-zone {
+      border: 2px dashed var(--border); border-radius: var(--card-r);
+      padding: 48px 24px; text-align: center; cursor: pointer;
+      transition: all .25s;
+    }
+    #drop-zone:hover, #drop-zone.drag-over {
+      border-color: var(--accent-ink); background: var(--accent-soft);
+    }
+    #drop-zone .dz-icon { font-size: 38px; margin-bottom: 12px; }
+    #drop-zone .dz-hint { color: var(--muted); font-size: 14px; }
+    #drop-zone .dz-hint strong { color: var(--accent-ink); }
+
+    .prog { margin-top: 16px; }
+    .prog-label { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    .prog-label span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prog-track { background: var(--surface2); border-radius: 99px; height: 5px; overflow: hidden; }
+    .prog-fill  { height: 100%; width: 0%; background: var(--accent); border-radius: 99px; transition: width .15s; }
+
+    #file-list { display: flex; flex-direction: column; gap: 10px; }
+    .file-row {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 13px 16px;
+    }
+    .file-row .fi { font-size: 22px; flex-shrink: 0; }
+    .file-row .fm { flex: 1; min-width: 0; }
+    .file-row .fn { font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file-row .fd { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .file-row .fa { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
+
+    /* ── 공통 ── */
+    .form-group { margin-bottom: 14px; }
+    .form-label {
+      display: block; font-size: 11px; font-weight: 700; letter-spacing: .08em;
+      color: var(--muted); margin-bottom: 6px;
+    }
+    .form-input {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: var(--radius); color: var(--text);
+      font-family: inherit; font-size: 14px; padding: 12px 16px;
+      outline: none; transition: border-color .2s;
+    }
+    .form-input:focus { border-color: var(--accent-ink); }
+    .form-input::placeholder { color: var(--muted); }
+
+    .empty { text-align: center; padding: 52px 0; color: var(--muted); font-size: 14px; }
+    .empty .icon { font-size: 38px; margin-bottom: 12px; }
+    .spinner {
+      display: inline-block; width: 18px; height: 18px;
+      border: 2px solid transparent; border-top-color: var(--accent-ink);
+      border-radius: 50%; animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .section-label {
+      font-size: 11px; font-weight: 600; letter-spacing: .12em;
+      color: var(--muted); margin-bottom: 16px;
+    }
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+    .row-between .section-label { margin: 0; }
+
+    /* ── 토스트 ── */
+    #toast {
+      position: fixed; bottom: calc(28px + env(safe-area-inset-bottom, 0px)); right: 28px; left: auto;
+      max-width: calc(100vw - 40px);
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); font-size: 13px;
+      padding: 12px 20px; border-radius: 12px;
+      box-shadow: var(--shadow);
+      opacity: 0; transform: translateY(8px);
+      transition: all .3s ease; pointer-events: none; z-index: 999;
+    }
+    #toast.show          { opacity: 1; transform: translateY(0); }
+    #toast.show.success  { border-color: var(--success); }
+    #toast.show.error    { border-color: var(--danger); }
+
+    /* ═══════════════════════════════
+       공유방 — 목록
+    ═══════════════════════════════ */
+    #room-list { display: flex; flex-direction: column; gap: 12px; }
+    .room-card {
+      display: flex; align-items: center; gap: 14px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--card-r); padding: 16px 18px;
+      cursor: pointer; transition: border-color .2s, background .2s;
+      width: 100%; text-align: left; font-family: inherit; color: var(--text);
+    }
+    .room-card:hover { border-color: var(--accent-ink); background: var(--surface2); }
+    .room-card .rk { font-size: 22px; flex-shrink: 0; }
+    .room-card .rm { flex: 1; min-width: 0; }
+    .room-card .rn { font-weight: 600; font-size: 15px; word-break: break-word; }
+    .room-card .rd { font-size: 12px; color: var(--muted); margin-top: 3px; }
+    .room-card .chev { color: var(--muted); font-size: 20px; }
+    .live-dot {
+      display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+      background: var(--success); margin-right: 5px; vertical-align: middle;
+    }
+    .owner-badge {
+      font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 99px;
+      background: var(--accent-soft); color: var(--accent-ink); margin-left: 6px;
+      vertical-align: middle;
+    }
+
+    /* ═══════════════════════════════
+       공유방 — 대화 화면
+    ═══════════════════════════════ */
+    #room-view { display: none; }
+    #room-view.active { display: block; }
+    .room-head {
+      display: flex; align-items: center; gap: 12px;
+      padding-bottom: 14px; border-bottom: 1px solid var(--border); margin-bottom: 16px;
+    }
+    .room-head .rh-title { flex: 1; min-width: 0; }
+    .room-head .rh-name { font-size: 18px; font-weight: 600; word-break: break-word; }
+    .room-head .rh-sub  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .member-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+    .member-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 99px; padding: 3px 10px 3px 4px; font-size: 12px;
+      transition: opacity .3s;
+    }
+    .member-chip img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
+    .member-chip.off { opacity: .45; }
+
+    #chat-scroll {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--card-r); padding: 18px;
+      height: 52vh; min-height: 320px; overflow-y: auto; overflow-x: hidden;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    #chat-scroll.drag-over { border-color: var(--accent-ink); background: var(--surface2); }
+    .msg { display: flex; gap: 10px; align-items: flex-start; }
+    .msg img.av { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+    .msg .body { min-width: 0; max-width: 78%; }
+    .msg .who { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .bubble {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 4px 14px 14px 14px; padding: 10px 14px;
+      font-size: 14px; white-space: pre-wrap; word-break: break-word;
+    }
+    .bubble.broken { color: var(--muted); font-style: italic; }
+    .msg.mine { flex-direction: row-reverse; }
+    .msg.mine .body { align-items: flex-end; display: flex; flex-direction: column; }
+    .msg.mine .who { text-align: right; }
+    .msg.mine .bubble { border-radius: 14px 4px 14px 14px; background: var(--mine-bg); border-color: var(--mine-border); }
+    .msg-time { font-size: 10px; color: var(--muted); margin-top: 4px; }
+    .msg-system {
+      align-self: center; font-size: 12px; color: var(--muted); text-align: center;
+      background: var(--surface2); border-radius: 99px; padding: 4px 14px;
+    }
+
+    .att {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 14px; min-width: 240px; max-width: 100%;
+    }
+    .att-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; flex-wrap: wrap; }
+    .att-head .ai { font-size: 18px; }
+    .att-head .an { word-break: break-all; }
+    .att-sub { font-size: 11px; color: var(--muted); margin: 4px 0 10px; }
+    .att-acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .att img.shot {
+      max-width: 100%; border-radius: 10px; display: block; margin-bottom: 10px; cursor: zoom-in;
+    }
+    .att img.shot.pending { min-height: 140px; width: 240px; max-width: 100%; background: var(--surface); }
+    .att img.shot.failed { display: none; }
+    .txt-badge {
+      font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 99px;
+      background: var(--info-soft); color: var(--info);
+    }
+    pre.txtview {
+      margin-top: 10px; background: var(--code-bg); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 14px; max-height: 260px; overflow: auto;
+      font-family: ui-monospace, 'SFMono-Regular', Consolas, 'D2Coding', monospace;
+      font-size: 12px; line-height: 1.6; color: var(--code-fg); white-space: pre;
+    }
+    pre.txtview.full { max-height: 62vh; margin-top: 0; }
+
+    .composer {
+      display: flex; gap: 8px; align-items: center; margin-top: 14px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--card-r); padding: 10px;
+    }
+    .composer textarea {
+      flex: 1; background: transparent; border: none; color: var(--text);
+      font-family: inherit; font-size: 14px; line-height: 1.5;
+      padding: 8px 6px; min-height: 0; height: 38px; max-height: 120px;
+      resize: none; outline: none;
+    }
+    .composer textarea:focus { border: none; }
+    .icon-btn {
+      background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+      border-radius: 10px; width: 38px; height: 38px; font-size: 16px;
+      cursor: pointer; flex-shrink: 0;
+    }
+    .icon-btn:hover { border-color: var(--accent-ink); color: var(--accent-ink); }
+    .sync-state { font-size: 11px; color: var(--muted); margin-top: 8px; text-align: right; }
+    .sync-state.live { color: var(--success); }
+    .sync-state.down { color: var(--danger); }
+    .room-hint { font-size: 11px; color: var(--muted); margin-top: 4px; text-align: right; }
+
+    /* ═══════════════════════════════
+       모달
+    ═══════════════════════════════ */
+    .backdrop {
+      position: fixed; inset: 0; z-index: 50; display: none;
+      background: var(--backdrop); backdrop-filter: blur(3px);
+      align-items: center; justify-content: center;
+      padding: calc(20px + env(safe-area-inset-top, 0px)) 20px calc(20px + env(safe-area-inset-bottom, 0px));
+    }
+    .backdrop.open { display: flex; }
+    .modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--card-r); width: 100%; max-width: 460px;
+      max-height: 86vh; display: flex; flex-direction: column; overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+    .modal.narrow { max-width: 380px; }
+    .modal.wide { max-width: 780px; }
+    .modal-head {
+      padding: 18px 20px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .modal-head h3 { font-size: 16px; font-weight: 600; word-break: break-all; }
+    .modal-head .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .modal-body { padding: 20px; overflow-y: auto; }
+    .modal-foot {
+      padding: 14px 20px; border-top: 1px solid var(--border);
+      display: flex; justify-content: flex-end; gap: 10px;
+    }
+    .x-btn { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; }
+    .x-btn:hover { color: var(--text); }
+    .field-error { color: var(--danger); font-size: 12px; margin-top: 8px; }
+    #cf-msg { font-size: 14px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+
+    .pick-search { margin-bottom: 10px; }
+    .pick-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+    .pick-row {
+      display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+      border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+    }
+    .pick-row:hover { border-color: var(--accent-ink); }
+    .pick-row img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+    .pick-row .pm { flex: 1; min-width: 0; }
+    .pick-row .pn { font-size: 13px; font-weight: 500; }
+    .pick-row input { accent-color: var(--accent-ink); width: 16px; height: 16px; }
+    .prov-tag {
+      font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 99px;
+      background: var(--surface2); color: var(--muted); margin-left: 4px;
+    }
+
+    #lightbox img { max-width: 100%; max-height: 82vh; border-radius: 12px; display: block; }
+
+    :where(a, button, input, textarea, [tabindex]):focus-visible {
+      outline: 2px solid var(--accent-ink); outline-offset: 2px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+
+    @media (max-width: 480px) {
+      .msg .body { max-width: 88%; }
+      #chat-scroll { height: 58vh; padding: 14px; }
+      .att { min-width: 0; }
+      #gate .headline { font-size: 34px; }
+      .post-content { padding-left: 0; }
+      .tab-btn { padding: 10px 12px; font-size: 13px; }
+      #toast { right: 20px; }
+      .file-row { flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── 헤더 ── -->
+  <header>
+    <div class="logo">Board<span>· 게시판</span></div>
+    <div id="user-badge" hidden>
+      <img id="badge-pic" src="" alt="" />
+      <div>
+        <div class="name"  id="badge-name"></div>
+        <div class="email" id="badge-sub">이 PC로 접속 중</div>
+      </div>
+      <button class="icon-btn" id="btn-account" title="내 정보 · 다른 기기에서 이어쓰기" aria-label="내 정보">⚙</button>
+    </div>
+  </header>
+
+  <!-- ── 탭 ── -->
+  <nav id="tab-nav" role="tablist" aria-label="메뉴">
+    <button class="tab-btn active" id="tab-rooms" data-tab="rooms" role="tab" aria-selected="true">🔒 공유방</button>
+    <button class="tab-btn"        id="tab-board" data-tab="board" role="tab" aria-selected="false">✦ 게시판</button>
+    <button class="tab-btn"        id="tab-files" data-tab="files" role="tab" aria-selected="false">📁 파일 전송</button>
+  </nav>
+
+  <!-- ── 실행할 수 없는 곳에서 열었을 때 ── -->
+  <section id="gate" hidden>
+    <div>
+      <div class="headline">방을 열고</div>
+      <div class="headline">같이 <em>주고받으세요</em></div>
+    </div>
+    <p class="sub" id="gate-title"></p>
+    <p class="gate-note" id="gate-note"></p>
+  </section>
+
+  <div class="notice" id="notice" hidden></div>
+
+  <!-- ══════════════════ 공유방 ══════════════════ -->
+  <div id="panel-rooms" class="panel active" role="tabpanel" aria-labelledby="tab-rooms">
+
+    <!-- 방 목록 -->
+    <div id="room-browser">
+      <div class="row-between">
+        <p class="section-label">내 방</p>
+        <button class="btn btn-primary btn-sm" id="btn-new-room" hidden>+ 방 만들기</button>
+      </div>
+      <div id="room-list">
+        <div class="empty"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- 방 안 -->
+    <div id="room-view">
+      <div class="room-head">
+        <button class="icon-btn" id="btn-back" title="방 목록으로" aria-label="방 목록으로">←</button>
+        <div class="rh-title">
+          <div class="rh-name" id="rv-name"></div>
+          <div class="rh-sub"  id="rv-sub"></div>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="rv-invite" hidden>+ 초대</button>
+        <button class="btn btn-danger btn-sm" id="rv-leave" hidden>나가기</button>
+      </div>
+
+      <div class="member-strip" id="rv-members"></div>
+
+      <div id="chat-scroll" aria-live="polite"></div>
+
+      <div class="composer">
+        <button class="icon-btn" id="btn-attach" title="파일·사진 올리기" aria-label="파일·사진 올리기" hidden>📎</button>
+        <input type="file" id="room-file" multiple hidden />
+        <textarea id="chat-input" rows="1" aria-label="메시지"
+                  placeholder="메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
+        <button class="btn btn-primary" id="btn-send">보내기</button>
+      </div>
+      <div class="sync-state" id="sync-state">불러오는 중…</div>
+      <div class="room-hint" id="room-hint" hidden>파일 저장소에 연결하는 중입니다.</div>
+
+      <div class="prog" id="room-upload" hidden>
+        <div class="prog-label"><span id="rprog-name">올리는 중…</span><span id="rprog-pct">0%</span></div>
+        <div class="prog-track"><div class="prog-fill" id="rprog-fill"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════ 게시판 ══════════════════ -->
+  <div id="panel-board" class="panel" role="tabpanel" aria-labelledby="tab-board">
+    <div id="compose">
+      <div id="compose-header">
+        <img id="compose-pic" src="" alt="" />
+        <div class="me" id="compose-name"></div>
+      </div>
+      <textarea id="post-input" placeholder="지금 무슨 생각을 하고 계신가요?" maxlength="1000" aria-label="게시글"></textarea>
+      <div id="compose-footer">
+        <span id="char-count">0 / 1000</span>
+        <button class="btn btn-primary" id="submit-btn">게시하기</button>
+      </div>
+    </div>
+
+    <p class="section-label">최근 게시글</p>
+    <div id="feed">
+      <div class="empty"><div class="spinner"></div></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════ 파일 전송 ══════════════════ -->
+  <div id="panel-files" class="panel" role="tabpanel" aria-labelledby="tab-files">
+
+    <div class="section-card" id="upload-card" hidden>
+      <div class="section-title">📤 파일 업로드 (최대 50MB)</div>
+      <div id="drop-zone" tabindex="0" role="button" aria-label="파일 올리기">
+        <div class="dz-icon">☁️</div>
+        <div class="dz-hint"><strong>클릭하거나 파일을 드래그</strong>하여 업로드</div>
+      </div>
+      <input type="file" id="file-input" multiple hidden />
+
+      <div class="prog" id="upload-progress" hidden>
+        <div class="prog-label"><span id="prog-name">업로드 중...</span><span id="prog-pct">0%</span></div>
+        <div class="prog-track"><div class="prog-fill" id="prog-fill"></div></div>
+      </div>
+    </div>
+    <div class="notice" id="upload-off" hidden>파일 저장소에 연결하는 중입니다. 잠시 후에도 이 안내가 보이면 페이지를 새로 열어 주세요.</div>
+
+    <div>
+      <p class="section-label">업로드된 파일</p>
+      <div id="file-list">
+        <div class="empty"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /#app -->
+
+<!-- ══════════════ 방 만들기 ══════════════ -->
+<div class="backdrop" id="modal-create">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="nr-title">
+    <div class="modal-head">
+      <div>
+        <h3 id="nr-title">방 만들기</h3>
+        <div class="sub">비밀번호를 아는 사람만 대화와 파일을 열 수 있습니다.</div>
+      </div>
+      <button class="x-btn" data-close="modal-create" aria-label="닫기">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label" for="nr-name">방 이름</label>
+        <input class="form-input" id="nr-name" maxlength="40" placeholder="예: 기상 데이터 스터디" />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="nr-desc">한 줄 설명 (선택)</label>
+        <input class="form-input" id="nr-desc" maxlength="60" placeholder="이 방에서 무엇을 나누나요?" />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="nr-pw">비밀번호 (4자 이상)</label>
+        <input class="form-input" id="nr-pw" type="password" autocomplete="new-password" placeholder="참여자에게 따로 알려 주세요" />
+      </div>
+      <p class="section-label" style="margin-bottom:10px">초대할 사람</p>
+      <input class="form-input pick-search" id="nr-search" placeholder="이름으로 찾기" aria-label="초대할 사람 찾기" />
+      <div class="pick-list" id="nr-users"><div class="empty"><div class="spinner"></div></div></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost btn-sm" data-close="modal-create">취소</button>
+      <button class="btn btn-primary" id="nr-submit">방 만들기</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ 비밀번호 ══════════════ -->
+<div class="backdrop" id="modal-password">
+  <div class="modal narrow" role="dialog" aria-modal="true" aria-labelledby="pw-title">
+    <div class="modal-head">
+      <div>
+        <h3 id="pw-title">비밀번호 입력</h3>
+        <div class="sub">방 비밀번호를 넣어야 대화와 파일이 열립니다.</div>
+      </div>
+      <button class="x-btn" data-close="modal-password" aria-label="닫기">✕</button>
+    </div>
+    <div class="modal-body">
+      <input class="form-input" id="pw-input" type="password" autocomplete="current-password" placeholder="비밀번호" aria-label="방 비밀번호" />
+      <p class="field-error" id="pw-error" hidden></p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost btn-sm" data-close="modal-password">취소</button>
+      <button class="btn btn-primary" id="pw-submit">입장</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ 초대 ══════════════ -->
+<div class="backdrop" id="modal-invite">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="iv-title">
+    <div class="modal-head">
+      <div>
+        <h3 id="iv-title">이 방에 초대</h3>
+        <div class="sub">초대한 사람에게 비밀번호를 알려 주세요.</div>
+      </div>
+      <button class="x-btn" data-close="modal-invite" aria-label="닫기">✕</button>
+    </div>
+    <div class="modal-body">
+      <input class="form-input pick-search" id="iv-search" placeholder="이름으로 찾기" aria-label="초대할 사람 찾기" />
+      <div class="pick-list" id="iv-users"><div class="empty"><div class="spinner"></div></div></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost btn-sm" data-close="modal-invite">취소</button>
+      <button class="btn btn-primary" id="iv-submit">초대하기</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ 텍스트 뷰어 ══════════════ -->
+<div class="backdrop" id="modal-text">
+  <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="tv-name">
+    <div class="modal-head">
+      <div>
+        <h3 id="tv-name">파일.txt</h3>
+        <div class="sub" id="tv-sub"></div>
+      </div>
+      <button class="x-btn" data-close="modal-text" aria-label="닫기">✕</button>
+    </div>
+    <div class="modal-body">
+      <pre class="txtview full" id="tv-body"></pre>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost btn-sm" id="tv-copy">복사</button>
+      <button class="btn btn-primary btn-sm" id="tv-save">.txt로 저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ 확인 ══════════════ -->
+<div class="backdrop" id="modal-confirm">
+  <div class="modal narrow" role="alertdialog" aria-modal="true" aria-describedby="cf-msg">
+    <div class="modal-body"><p id="cf-msg"></p></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost btn-sm" id="cf-cancel">취소</button>
+      <button class="btn btn-primary btn-sm" id="cf-ok">확인</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ 사진 ══════════════ -->
+<div class="backdrop" id="lightbox" data-close="lightbox">
+  <img id="lb-img" src="" alt="" />
+</div>
+
+<!-- ══════════════ 내 정보 ══════════════ -->
+<div class="backdrop" id="modal-account">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ac-title">
+    <div class="modal-head">
+      <div>
+        <h3 id="ac-title">내 정보</h3>
+        <div class="sub">이름을 바꾸거나, 다른 기기에서 같은 사람으로 들어올 수 있습니다.</div>
+      </div>
+      <button class="x-btn" data-close="modal-account" aria-label="닫기">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label" for="ac-name">이름</label>
+        <div style="display:flex;gap:8px">
+          <input class="form-input" id="ac-name" maxlength="20" />
+          <button class="btn btn-ghost btn-sm" id="ac-rename">변경</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="ac-token">접근 토큰 (만료되었을 때 새로 붙여넣기)</label>
+        <div style="display:flex;gap:8px">
+          <input class="form-input" id="ac-token" type="password" autocomplete="off" placeholder="github_pat_…" />
+          <button class="btn btn-ghost btn-sm" id="ac-settoken">저장</button>
+        </div>
+        <p class="field-error" style="color:var(--muted)">저장소: <span id="ac-repo"></span> · 토큰은 이 PC 에만 저장됩니다.</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="ac-code">내 접속 코드 (다른 PC 에 붙여넣기)</label>
+        <div style="display:flex;gap:8px">
+          <input class="form-input" id="ac-code" readonly />
+          <button class="btn btn-ghost btn-sm" id="ac-copy">복사</button>
+        </div>
+        <p class="field-error" style="color:var(--muted)">같은 사람으로 이어서 쓰려는 본인 PC 에만 붙여넣으세요.</p>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label" for="ac-import">다른 PC 의 코드로 불러오기</label>
+        <div style="display:flex;gap:8px">
+          <input class="form-input" id="ac-import" placeholder="코드를 붙여넣으세요" autocomplete="off" />
+          <button class="btn btn-primary btn-sm" id="ac-load">불러오기</button>
+        </div>
+        <p class="field-error" id="ac-error" hidden></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+/* ══════════════════════════════════════════════════════════
+   실시간 공유방 — 설치·서버 없이 웹에서 바로 실행되는 버전
+   ──────────────────────────────────────────────────────────
+   · 로그인   : 없음 — 처음 들어올 때 닉네임만 정하고 이 PC 에 저장 (gh-store.js)
+   · 저장     : GitHub 저장소 (문서는 data 브랜치, 첨부는 assets 브랜치)
+   · 저장     : 공유 문서 저장소(db)  — 방·대화·게시글·파일 목록
+   · 파일     : 첨부 저장소(assets)
+   · 실시간   : 저장소 구독(onSnapshot) — WebSocket·TCP 소켓 없음
+   · 접속 표시: 지금 이 페이지를 보고 있는 사람(room presence)
+   · 방 대화와 방 파일은 방 비밀번호로 만든 키(PBKDF2 → AES-GCM)로
+     암호화해서 저장합니다. 비밀번호를 모르면 저장소를 직접 열어도 읽을 수 없습니다.
+   ══════════════════════════════════════════════════════════ */
+
+// ══════════════════════════════════════════════════════════
+// 설정
+// ══════════════════════════════════════════════════════════
+const MAX_FILE_MB       = 20;                 // 한 파일 최대 크기 (GitHub 저장소가 커지므로 낮게)
+const MAX_PREVIEW_BYTES = 2 * 1024 * 1024;    // 2MB 까지만 화면에 펼침
+const MAX_IMAGE_PREVIEW = 15 * 1024 * 1024;   // 이보다 큰 사진은 미리보기 없이 내려받기만
+const ROOM_KEY_HOURS    = 12;                 // 비밀번호를 넣은 뒤 다시 묻지 않는 시간
+const KDF_ITER          = 150000;             // PBKDF2 반복 횟수
+const PART_BYTES        = 8 * 1024 * 1024;    // 첨부 한 조각 (GitHub 파일 한도 100MB 보다 훨씬 작게)
+const LOG_DOC_BYTES     = 180000;             // 문서 하나에 모을 최대 크기 (저장소 한도 256KB)
+const MSG_RENDER_LIMIT  = 300;                // 방에서 보여 줄 최근 메시지 수
+const LIST_LIMIT        = 100;                // 게시글·파일 목록에 보여 줄 수
+const CHECK_WORD        = 'board-room-v1';    // 비밀번호 확인용 문구 (암호화해서 저장)
+const TABS              = ['rooms', 'board', 'files'];
+
+const TEXT_EXTS = new Set(('txt md markdown json jsonl py pyw js mjs ts tsx jsx vue svelte html htm '
+  + 'css scss csv tsv xml yaml yml ini cfg conf toml log sh bash bat ps1 sql java c h cpp hpp cs go '
+  + 'rb rs php r kt swift lua pl dart scala gradle env gitignore dockerfile ipynb').split(' '));
+const IMAGE_EXTS = new Set('png jpg jpeg gif webp bmp svg avif'.split(' '));
+const IMAGE_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+                     webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml', avif: 'image/avif' };
+// 이 화면에서 그대로 내려받을 수 있는 확장자. 나머지는 .zip 으로 묶어서 내려받습니다.
+const SAVE_EXTS = new Set('gif png jpg jpeg webp mp4 webm txt json md docx pptx epub csv ttf html svg pdf xlsx zip'.split(' '));
+
+const MSG = {
+  readonly: '지금은 저장할 수 없는 상태입니다. 페이지를 새로 열어 주세요.',
+  noId:     '접속 정보를 만들지 못했습니다. 페이지를 새로 열어 주세요.',
+  noAssets: '파일 저장소에 연결하지 못했습니다. 페이지를 새로 열어 주세요.',
+};
+
+// ══════════════════════════════════════════════════════════
+// 유틸
+// ══════════════════════════════════════════════════════════
+const $ = id => document.getElementById(id);
+const te = new TextEncoder();
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function esc(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+const extOf    = n => { const s = String(n || ''); const i = s.lastIndexOf('.'); return i >= 0 ? s.slice(i + 1).toLowerCase() : ''; };
+const kindOf   = n => IMAGE_EXTS.has(extOf(n)) ? 'image' : TEXT_EXTS.has(extOf(n)) ? 'text' : 'binary';
+const baseName = n => String(n || 'file').replace(/\.[^.]+$/, '') || 'file';
+const byteLen  = obj => te.encode(JSON.stringify(obj)).length;
+const safeSeg  = s => String(s || 'anon').replace(/[^A-Za-z0-9_\-.:@+]/g, '_').slice(0, 150);
+
+function newId() {
+  const a = new Uint8Array(9);
+  crypto.getRandomValues(a);
+  return Array.from(a, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function fmtDate(t) {
+  return new Date(t).toLocaleString('ko-KR', {
+    year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+function fmtTime(t) {
+  return new Date(t).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+function fmtSize(bytes) {
+  bytes = Number(bytes) || 0;
+  if (bytes < 1024)       return bytes + ' B';
+  if (bytes < 1048576)    return (bytes / 1024).toFixed(1) + ' KB';
+  if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+  return (bytes / 1073741824).toFixed(2) + ' GB';
+}
+function fileIcon(name) {
+  const m = { pdf:'📄', doc:'📝', docx:'📝', xls:'📊', xlsx:'📊', ppt:'📋', pptx:'📋',
+              jpg:'🖼', jpeg:'🖼', png:'🖼', gif:'🖼', svg:'🖼', webp:'🖼',
+              mp4:'🎬', mov:'🎬', avi:'🎬', mp3:'🎵', wav:'🎵',
+              zip:'🗜', gz:'🗜', tar:'🗜', py:'🐍', js:'📜', html:'🌐', css:'🎨', json:'📋' };
+  return m[extOf(name)] || '📁';
+}
+function emptyHtml(text, icon = '') {
+  return `<div class="empty">${icon ? `<div class="icon">${icon}</div>` : ''}${esc(text)}</div>`;
+}
+const SPINNER = '<div class="empty"><div class="spinner"></div></div>';
+
+// 텍스트 파일 글자 인코딩: UTF-8 → (윈도우 한글) CP949 순서로 시도
+function decodeText(u8) {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(u8); } catch {}
+  try { return new TextDecoder('euc-kr', { fatal: true }).decode(u8); } catch {}
+  return new TextDecoder('utf-8').decode(u8);
+}
+
+// 브라우저 저장소 (이 브라우저 · 이 페이지 전용)
+const local = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+// ══════════════════════════════════════════════════════════
+// 암호화 (WebCrypto)
+// ══════════════════════════════════════════════════════════
+function randomBytes(n) { const a = new Uint8Array(n); crypto.getRandomValues(a); return a; }
+
+function bytesToB64(u8) {
+  const CH = 3 * 16384, out = [];
+  for (let i = 0; i < u8.length; i += CH) out.push(btoa(String.fromCharCode.apply(null, u8.subarray(i, i + CH))));
+  return out.join('');
+}
+function b64ToBytes(b64) {
+  b64 = String(b64 || '').replace(/[^A-Za-z0-9+/=]/g, '');
+  if (b64.length % 4) throw new Error('bad base64');
+  const pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+  const out = new Uint8Array(b64.length / 4 * 3 - pad);
+  const CH = 4 * 16384;
+  let o = 0;
+  for (let i = 0; i < b64.length; i += CH) {
+    const bin = atob(b64.slice(i, i + CH));
+    for (let j = 0; j < bin.length; j++) out[o++] = bin.charCodeAt(j);
+  }
+  return out;
+}
+function concatBytes(chunks) {
+  const total = chunks.reduce((a, c) => a + c.length, 0);
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const c of chunks) { out.set(c, o); o += c.length; }
+  return out;
+}
+
+async function deriveKey(password, saltB64, iterations) {
+  const base = await crypto.subtle.importKey('raw', te.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: b64ToBytes(saltB64), iterations, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+}
+async function encryptBytes(key, u8) {
+  const iv = randomBytes(12);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, u8));
+  return { iv: bytesToB64(iv), data: ct };
+}
+async function decryptBytes(key, ivB64, u8) {
+  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64ToBytes(ivB64) }, key, u8));
+}
+async function encryptJSON(key, obj) {
+  const r = await encryptBytes(key, te.encode(JSON.stringify(obj)));
+  return { iv: r.iv, ct: bytesToB64(r.data) };
+}
+async function decryptJSON(key, e) {
+  if (!e || typeof e.iv !== 'string' || typeof e.ct !== 'string') throw new Error('empty');
+  const plain = await decryptBytes(key, e.iv, b64ToBytes(e.ct));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+async function keyMatchesRoom(room, key) {
+  try { return (await decryptJSON(key, room.check)).ok === CHECK_WORD; } catch { return false; }
+}
+
+// ══════════════════════════════════════════════════════════
+// 서버 연결 (shim.js 가 제공하는 기능)
+// ══════════════════════════════════════════════════════════
+const cap = { db: null, user: null, room: null, assets: null, downloads: null };
+let me = { id: null, name: '', avatarUrl: '' };
+let writable = true;         // false 가 되면 읽기 전용
+let writeAnswer = null;      // user.can('data.write') 결과 (true/false/null)
+
+function useCap(name) {
+  try {
+    if (!window.platform || typeof window.platform.use !== 'function') return Promise.resolve(null);
+    return Promise.resolve(window.platform.use(name)).catch(() => null);
+  } catch { return Promise.resolve(null); }
+}
+
+function errCode(e) { return (e && typeof e === 'object' && e.code) || ''; }
+
+function writeErrorText(e, fallback) {
+  switch (errCode(e)) {
+    case 'quota_exceeded':     return '저장 공간이 가득 찼습니다. 오래된 방이나 게시글, 파일을 지운 뒤 다시 해 주세요.';
+    case 'resource_exhausted': return '요청이 너무 잦습니다. 잠시 후 다시 해 주세요.';
+    case 'unavailable':        return '연결이 잠시 불안정합니다. 다시 해 주세요.';
+    case 'revoked':            return '연결이 끊겼습니다. 페이지를 새로 열어 주세요.';
+    default:                   return fallback;
+  }
+}
+// 저장이 거절되면(권한 없음) 읽기 전용으로 전환
+function handleWriteError(e, fallback) {
+  if (errCode(e) === 'invalid_argument' && writeAnswer !== true) {
+    setReadOnly(MSG.readonly);
+    toast('보기 전용이라 저장할 수 없습니다.', 'error');
+    return;
+  }
+  toast(writeErrorText(e, fallback), 'error');
+}
+
+// ── 사람 이름·사진 (저장은 id 만, 표시할 때마다 조회) ──
+const profCache = new Map();
+const GENERIC_AVATAR = 'data:image/svg+xml,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="20" fill="#8a8a96"/>'
+  + '<circle cx="20" cy="16" r="7" fill="#fff" opacity=".9"/><path d="M7 35c2-7 8-10 13-10s11 3 13 10" fill="#fff" opacity=".9"/></svg>');
+
+async function profilesFor(ids) {
+  const uniq = [...new Set((ids || []).filter(x => typeof x === 'string' && x))];
+  if (!cap.user || !uniq.length) return;
+  try {
+    const ps = await cap.user.profiles(uniq);
+    for (const id of uniq) if (ps && ps[id]) profCache.set(id, ps[id]);
+  } catch {}
+}
+function pName(id) {
+  const p = profCache.get(id);
+  if (p && p.name) return p.name;
+  if (id && id === me.id) return me.name || '나';
+  return '이름 없음';
+}
+function pAvatar(id) {
+  const p = profCache.get(id);
+  if (p && p.avatarUrl) return p.avatarUrl;
+  if (id && id === me.id && me.avatarUrl) return me.avatarUrl;
+  return GENERIC_AVATAR;
+}
+
+// ══════════════════════════════════════════════════════════
+// 목록 저장 방식
+// ──────────────────────────────────────────────────────────
+// 대화·게시글·파일 목록은 "사람마다 자기 문서"에 모아 적습니다.
+//   경로: <목록>/<내 id>~<번호>   본문: { uid, n, items: [...] }
+// 한 문서는 한 사람만 쓰므로 동시에 써도 서로 덮어쓰지 않고,
+// 문서가 커지면 다음 번호로 넘어갑니다 (저장소 문서 수 한도 절약).
+// ══════════════════════════════════════════════════════════
+class ChunkLog {
+  constructor(path) {
+    this.path  = path;
+    this.docs  = new Map();
+    this.unsub = null;
+    this.queue = Promise.resolve();
+    this.ready = false;
+  }
+  coll() { return cap.db.collection(this.path); }
+
+  subscribe(onItems, onError) {
+    this.stop();
+    this.unsub = this.coll().onSnapshot(snap => {
+      const m = new Map();
+      for (const d of snap.docs) {
+        if (!d.exists) continue;
+        const b = d.data();
+        if (b && Array.isArray(b.items)) m.set(d.id, b);
+      }
+      this.docs = m;
+      this.ready = true;
+      onItems(this.items());
+    }, e => { if (onError) onError(e); });
+  }
+  stop() {
+    if (this.unsub) { try { this.unsub(); } catch {} this.unsub = null; }
+  }
+  items() {
+    const out = [];
+    for (const [doc, b] of this.docs) {
+      for (const it of b.items) {
+        if (it && typeof it === 'object' && typeof it.id === 'string') out.push(Object.assign({}, it, { uid: b.uid, doc }));
+      }
+    }
+    return out;
+  }
+  docIdFor(n) { return `${safeSeg(me.id)}~${n}`; }
+  maxN() {
+    let n = 0;
+    for (const b of this.docs.values()) if (b.uid === me.id && Number.isInteger(b.n) && b.n > n) n = b.n;
+    return n;
+  }
+  run(fn) {                                   // 같은 목록에 대한 쓰기는 한 번에 하나씩
+    const p = this.queue.then(fn, fn);
+    this.queue = p.catch(() => {});
+    return p;
+  }
+  append(item) {
+    return this.run(async () => {
+      let n = this.maxN();
+      for (let guard = 0; guard < 64; guard++, n++) {
+        const ref  = this.coll().doc(this.docIdFor(n));
+        const snap = await ref.get();
+        const old  = snap.exists ? snap.data() : null;
+        const items = old && Array.isArray(old.items) ? old.items.slice() : [];
+        items.push(item);
+        const body = { uid: me.id, n, items, at: Date.now() };
+        if (items.length === 1 || byteLen(body) <= LOG_DOC_BYTES) { await ref.set(body); return; }
+      }
+      throw { code: 'quota_exceeded', message: 'log full' };
+    });
+  }
+  remove(itemId) {
+    return this.run(async () => {
+      for (const [docId, b] of this.docs) {
+        if (b.uid !== me.id || !b.items.some(it => it && it.id === itemId)) continue;
+        const ref  = this.coll().doc(docId);
+        const snap = await ref.get();
+        if (!snap.exists) continue;
+        const cur = snap.data();
+        await ref.set(Object.assign({}, cur, {
+          items: (cur.items || []).filter(it => it && it.id !== itemId), at: Date.now(),
+        }));
+      }
+    });
+  }
+  async destroy() {                           // 방 삭제용: 이 목록의 문서를 전부 지움
+    this.stop();
+    const snap = await this.coll().get();
+    for (const d of snap.docs) await this.coll().doc(d.id).delete();
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// 첨부 저장소 — 파일을 조각내 올리고, 다시 모아 받기
+// (저장소가 받는 형식이 정해져 있어 모든 파일을 base64 텍스트로 올립니다)
+// ══════════════════════════════════════════════════════════
+const ASSET_ID_RE = /^[A-Za-z0-9_-]{8,80}$/;
+
+async function putParts(u8, onProgress) {
+  const assets = cap.assets;
+  if (!assets) throw { code: 'no_assets' };
+  const parts = [];
+  try {
+    const total = Math.ceil(u8.length / PART_BYTES);
+    for (let i = 0; i < total; i++) {
+      const b64  = bytesToB64(u8.subarray(i * PART_BYTES, Math.min(u8.length, (i + 1) * PART_BYTES)));
+      const blob = new Blob([b64], { type: 'text/plain' });
+      let res;
+      try { res = await assets.upload(blob, { type: 'text/plain' }); }
+      catch (e) {
+        if (errCode(e) !== 'store_unavailable') throw e;
+        await sleep(800 + Math.random() * 700);
+        res = await assets.upload(blob, { type: 'text/plain' });
+      }
+      parts.push(res.id);
+      if (onProgress) onProgress((i + 1) / total);
+    }
+    return parts;
+  } catch (e) {
+    dropParts(parts);
+    throw e;
+  }
+}
+
+async function fetchParts(parts) {
+  const chunks = [];
+  for (const id of parts || []) {
+    if (!ASSET_ID_RE.test(String(id))) throw new Error('bad part');
+    const res = await window.assetFetch(id);
+    if (!res.ok) throw new Error('missing part');
+    chunks.push(b64ToBytes((await res.text()).trim()));
+  }
+  return concatBytes(chunks);
+}
+
+function dropParts(parts) {
+  if (!cap.assets) return Promise.resolve();
+  return Promise.all((parts || [])
+    .filter(id => ASSET_ID_RE.test(String(id)))
+    .map(id => cap.assets.delete(id).catch(() => null)));
+}
+
+function uploadErrorText(e) {
+  switch (errCode(e)) {
+    case 'no_assets': case 'not_granted': case 'capability_disabled': case 'capability_removed':
+      return MSG.noAssets;
+    case 'quota_or_state': return '파일 저장 공간이 가득 찼습니다. 필요 없는 파일을 지운 뒤 다시 올려 주세요.';
+    case 'rate_limited':   return '너무 빠르게 올리고 있습니다. 잠시 후 다시 올려 주세요.';
+    case 'too_large':      return `파일이 너무 큽니다. 최대 ${MAX_FILE_MB}MB 까지 올릴 수 있습니다.`;
+    case 'upstream_auth':  return '인증이 풀렸습니다. 페이지를 새로 열어 주세요.';
+    default:               return writeErrorText(e, '올리지 못했습니다. 다시 해 주세요.');
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// 내려받기 — 이 화면에서 받을 수 없는 확장자는 .zip 으로 묶음
+// ══════════════════════════════════════════════════════════
+async function saveFile(filename, data) {
+  if (!cap.downloads) cap.downloads = await useCap('downloads');
+  const dl = cap.downloads;
+  if (!dl) { toast('이 화면에서는 내려받기를 쓸 수 없습니다.', 'error'); return false; }
+  try {
+    await dl.save({ filename, data });
+    return true;
+  } catch (e) {
+    const c = errCode(e);
+    if (c === 'declined') return false;
+    if (c === 'rate_limited') toast('저장 창이 이미 떠 있습니다. 잠시 후 다시 눌러 주세요.', 'error');
+    else if (c === 'rejected_extension' || c === 'extension_not_enabled') toast('이 형식은 여기서 내려받을 수 없습니다.', 'error');
+    else if (c === 'too_large') toast('파일이 너무 커서 내려받을 수 없습니다.', 'error');
+    else toast('내려받지 못했습니다.', 'error');
+    return false;
+  }
+}
+async function saveBytes(name, bytes) {
+  if (window.FREE_DOWNLOAD || SAVE_EXTS.has(extOf(name))) return saveFile(name, new Blob([bytes]));
+  const ok = await saveFile(name + '.zip', makeZip([{ name, bytes }]));
+  if (ok) toast('이 형식은 그대로 받을 수 없어 .zip 으로 묶었습니다.');
+  return ok;
+}
+function saveText(originalName, text) { return saveFile(baseName(originalName) + '.txt', text); }
+
+// ── 압축 없는 ZIP 만들기 (한글 파일 이름 유지) ──
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(u8) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function makeZip(files) {
+  const now  = new Date();
+  const time = ((now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1)) & 0xFFFF;
+  const date = (((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate()) & 0xFFFF;
+  const body = [], central = [];
+  let offset = 0;
+  for (const f of files) {
+    const name = te.encode(f.name), crc = crc32(f.bytes), size = f.bytes.length;
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true);
+    lh.setUint16(8, 0, true); lh.setUint16(10, time, true); lh.setUint16(12, date, true);
+    lh.setUint32(14, crc, true); lh.setUint32(18, size, true); lh.setUint32(22, size, true);
+    lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+    body.push(new Uint8Array(lh.buffer), name, f.bytes);
+
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true);
+    ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true); ch.setUint16(12, time, true);
+    ch.setUint16(14, date, true); ch.setUint32(16, crc, true); ch.setUint32(20, size, true);
+    ch.setUint32(24, size, true); ch.setUint16(28, name.length, true); ch.setUint16(30, 0, true);
+    ch.setUint16(32, 0, true); ch.setUint16(34, 0, true); ch.setUint16(36, 0, true);
+    ch.setUint32(38, 0, true); ch.setUint32(42, offset, true);
+    central.push(new Uint8Array(ch.buffer), name);
+    offset += 30 + name.length + size;
+  }
+  const cdSize = central.reduce((a, c) => a + c.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(4, 0, true); end.setUint16(6, 0, true);
+  end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, offset, true); end.setUint16(20, 0, true);
+  return new Blob([...body, ...central, new Uint8Array(end.buffer)], { type: 'application/zip' });
+}
+
+// ── 사진 표시: blob 주소가 막히면 data 주소로 ──
+let blobImagesOk = null;
+function showImage(img, cache) {
+  return new Promise(resolve => {
+    const useData = () => {
+      if (!cache.data) cache.data = `data:${cache.mime};base64,${bytesToB64(cache.bytes)}`;
+      img.onload  = () => resolve(true);
+      img.onerror = () => resolve(false);
+      img.src = cache.data;
+    };
+    if (blobImagesOk === false) return useData();
+    if (!cache.blob) cache.blob = URL.createObjectURL(new Blob([cache.bytes], { type: cache.mime }));
+    img.onload  = () => { blobImagesOk = true; resolve(true); };
+    img.onerror = () => { if (blobImagesOk === true) resolve(false); else { blobImagesOk = false; useData(); } };
+    img.src = cache.blob;
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// 화면 공통
+// ══════════════════════════════════════════════════════════
+let toastTimer;
+function toast(msg, type = '') {
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = type ? `show ${type}` : 'show';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = ''; }, 3200);
+}
+
+function openModal(id) { $(id).classList.add('open'); }
+function closeModal(id) {
+  const el = $(id);
+  if (!el || !el.classList.contains('open')) return;
+  el.classList.remove('open');
+  if (id === 'modal-confirm' && confirmResolve) { const r = confirmResolve; confirmResolve = null; r(false); }
+}
+
+let confirmResolve = null;
+function askConfirm(message, okLabel = '확인') {
+  if (confirmResolve) { const r = confirmResolve; confirmResolve = null; r(false); }
+  $('cf-msg').textContent = message;
+  $('cf-ok').textContent = okLabel;
+  openModal('modal-confirm');
+  setTimeout(() => $('cf-ok').focus(), 50);
+  return new Promise(res => { confirmResolve = res; });
+}
+function settleConfirm(v) {
+  const r = confirmResolve;
+  confirmResolve = null;
+  $('modal-confirm').classList.remove('open');
+  if (r) r(v);
+}
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch {}
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch { return false; }
+}
+
+function setProgress(which, name, pct, label) {
+  const ids = which === 'room'
+    ? ['room-upload', 'rprog-name', 'rprog-pct', 'rprog-fill']
+    : ['upload-progress', 'prog-name', 'prog-pct', 'prog-fill'];
+  $(ids[0]).hidden = false;
+  $(ids[1]).textContent = label ? `${name} · ${label}` : name;
+  $(ids[2]).textContent = Math.round(pct) + '%';
+  $(ids[3]).style.width = Math.round(pct) + '%';
+}
+function hideProgress(which) { $(which === 'room' ? 'room-upload' : 'upload-progress').hidden = true; }
+
+// 잠시 뒤 포커스 — 사용자가 이미 다른 칸에 입력 중이면 가로채지 않음
+function focusSoon(el, scope) {
+  setTimeout(() => {
+    const act = document.activeElement;
+    const busy = act && act !== document.body && (scope ? scope.contains(act) : /^(INPUT|TEXTAREA)$/.test(act.tagName));
+    if (!busy && el && !el.disabled) el.focus();
+  }, 60);
+}
+
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+</script>
+<script>
+'use strict';
+// ══════════════════════════════════════════════════════════
+// 시작
+// ══════════════════════════════════════════════════════════
+function showGate(title, note) {
+  $('gate-title').textContent = title;
+  $('gate-note').textContent = note;
+  $('gate').hidden = false;
+  $('tab-nav').hidden = true;
+  $('user-badge').hidden = true;
+  $('notice').hidden = true;
+  for (const n of TABS) $('panel-' + n).classList.remove('active');
+}
+
+function setNotice(text) {
+  const el = $('notice');
+  el.textContent = text;
+  el.hidden = !text;
+}
+
+function setReadOnly(message) {
+  writable = false;
+  setNotice(message);
+  $('btn-new-room').hidden = true;
+  $('chat-input').disabled = true;
+  $('chat-input').placeholder = '보기 전용입니다';
+  $('btn-send').disabled = true;
+  $('post-input').disabled = true;
+  $('submit-btn').disabled = true;
+  $('rv-invite').hidden = true;
+  $('rv-leave').hidden = true;
+  refreshUploadUI();
+}
+
+function refreshUploadUI() {
+  const canUpload = writable && !!cap.assets;
+  $('btn-attach').hidden  = !canUpload;
+  $('upload-card').hidden = !canUpload;
+  $('upload-off').hidden  = canUpload || !assetsResolved;
+  $('room-hint').hidden   = canUpload || !writable || !assetsResolved;
+}
+let assetsResolved = false;
+
+async function boot() {
+  if (!window.platform || typeof window.platform.use !== 'function') {
+    showGate('서버 연결 파일을 불러오지 못했습니다.',
+             '주소를 다시 열어 주세요. 계속되면 서버가 꺼져 있을 수 있습니다.');
+    return;
+  }
+
+  const [user, db] = await Promise.all([useCap('user'), useCap('db')]);
+  cap.user = user;
+  cap.db = db;
+  if (!db) {
+    showGate('공유 저장소에 연결하지 못했습니다.',
+             '페이지를 새로 열어 주세요. 계속되면 서버가 꺼져 있을 수 있습니다.');
+    return;
+  }
+
+  if (user) { try { me = await user.me(); } catch {} }
+  me = { id: me && me.id || null, name: me && me.name || '', avatarUrl: me && me.avatarUrl || GENERIC_AVATAR };
+
+  // 헤더·작성란
+  $('user-badge').hidden = false;
+  $('badge-pic').src = me.avatarUrl;
+  $('badge-name').textContent = me.name || '나';
+  $('compose-pic').src = me.avatarUrl;
+  $('compose-name').textContent = me.name || '나';
+
+  if (user) { try { writeAnswer = await user.can('data.write'); } catch { writeAnswer = null; } }
+  if (!me.id)                   setReadOnly(MSG.noId);
+  else if (writeAnswer === false) setReadOnly(MSG.readonly);
+  else $('btn-new-room').hidden = false;
+
+  registerSelf();
+  subscribePeople();
+  subscribeRooms();
+  subscribePosts();
+  subscribeFiles();
+
+  useCap('assets').then(a => { cap.assets = a; assetsResolved = true; refreshUploadUI(); });
+  useCap('downloads').then(d => { if (d) cap.downloads = d; });
+  useCap('room').then(r => { cap.room = r; startPresence(); });
+}
+
+// 한 번 열어 본 사람은 초대 목록에 나타나도록 등록 (처음 한 번만 기록)
+async function registerSelf() {
+  if (!me.id || !writable) return;
+  try {
+    const ref = cap.db.doc('people/' + safeSeg(me.id));
+    const snap = await ref.get();
+    if (!snap.exists) await ref.set({ uid: me.id, joinedAt: Date.now() });
+  } catch (e) {
+    if (errCode(e) === 'invalid_argument' && writeAnswer !== true) setReadOnly(MSG.readonly);
+  }
+}
+
+let peopleIds = [];
+function subscribePeople() {
+  cap.db.collection('people').onSnapshot(snap => {
+    peopleIds = snap.docs.map(d => d.exists && d.data() && d.data().uid).filter(x => typeof x === 'string');
+  }, () => {});
+}
+
+// ── 탭 ──
+function switchTab(name) {
+  for (const n of TABS) {
+    $('panel-' + n).classList.toggle('active', n === name);
+    const b = $('tab-' + n);
+    b.classList.toggle('active', n === name);
+    b.setAttribute('aria-selected', String(n === name));
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// 접속 표시 (지금 이 페이지를 보고 있는 사람)
+// ══════════════════════════════════════════════════════════
+let peers = [];
+let presenceSeq = 0;
+
+function startPresence() {
+  if (!cap.room) return;
+  try {
+    cap.room.onPeers(change => { peers = change.peers || []; onPresenceChange(); }, () => { peers = []; onPresenceChange(); });
+  } catch {}
+  setPresence(current ? current.id : null);
+}
+function setPresence(roomId) {
+  if (!cap.room || !me.id) return;
+  Promise.resolve(cap.room.presence({ in: roomId || null, uid: me.id })).catch(() => {});
+}
+function peerId(p) {
+  return p.by || (p.presence && typeof p.presence.uid === 'string' ? p.presence.uid : null);
+}
+function onlineSet() {
+  return new Set(peers.filter(p => p.kind !== 'agent').map(peerId).filter(Boolean));
+}
+function hereSet(roomId) {
+  return new Set(peers
+    .filter(p => p.kind !== 'agent' && p.presence && p.presence.in === roomId)
+    .map(peerId).filter(Boolean));
+}
+
+function onPresenceChange() {
+  if (!current) { renderRooms(); return; }
+  const ctx = current;
+  renderMembers();
+  const here = hereSet(ctx.id);
+  if (ctx.here && Date.now() - ctx.enteredAt > 2500) {
+    const joined = [...here].filter(id => !ctx.here.has(id) && id !== me.id);
+    const left   = [...ctx.here].filter(id => !here.has(id) && id !== me.id);
+    if (joined.length || left.length) {
+      profilesFor([...joined, ...left]).then(() => {
+        if (ctx !== current) return;
+        for (const id of joined) ctx.ephemeral.push({ id: 'p' + (++presenceSeq), t: Date.now(), k: 'presence', pv: 'join', uid: id, text: `${pName(id)} 님이 들어왔습니다` });
+        for (const id of left)   ctx.ephemeral.push({ id: 'p' + (++presenceSeq), t: Date.now(), k: 'presence', pv: 'left', uid: id, text: `${pName(id)} 님이 나갔습니다` });
+        queueRoomRender(ctx);
+      });
+    }
+  }
+  ctx.here = here;
+  updateSyncState();
+}
+
+// ══════════════════════════════════════════════════════════
+// 공유방 — 목록
+// ══════════════════════════════════════════════════════════
+let rooms = [];
+let roomsLoaded = false;
+let current = null;
+let pendingRoom = null;
+
+function subscribeRooms() {
+  if (!me.id) { $('room-list').innerHTML = emptyHtml('접속 정보가 없어 방을 볼 수 없습니다.', '🔒'); return; }
+  cap.db.collection('rooms').where('members', 'array-contains', me.id).onSnapshot(snap => {
+    rooms = snap.docs.filter(d => d.exists).map(d => Object.assign({}, d.data(), { id: d.id }))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    roomsLoaded = true;
+    renderRooms();
+    if (current) onCurrentRoomChanged();
+  }, () => {
+    $('room-list').innerHTML = emptyHtml('방 목록을 불러오지 못했습니다. 페이지를 새로 열어 주세요.');
+  });
+}
+
+let roomsRenderSeq = 0;
+async function renderRooms() {
+  if (!me.id || !roomsLoaded) return;
+  const seq = ++roomsRenderSeq;
+  await profilesFor(rooms.map(r => r.ownerId));
+  if (seq !== roomsRenderSeq) return;
+  const list = $('room-list');
+  if (!rooms.length) {
+    list.innerHTML = emptyHtml(writable ? '아직 방이 없습니다. 방을 만들고 사람을 초대해 보세요.'
+                                        : '참여한 방이 없습니다.', '🔒');
+    return;
+  }
+  list.innerHTML = rooms.map(r => {
+    const here = cap.room ? hereSet(r.id).size : 0;
+    const count = Array.isArray(r.members) ? r.members.length : 0;
+    return `<button class="room-card" data-room="${esc(r.id)}">
+        <div class="rk">🔒</div>
+        <div class="rm">
+          <div class="rn">${esc(r.name || '이름 없는 방')}${r.ownerId === me.id ? '<span class="owner-badge">방장</span>' : ''}</div>
+          <div class="rd">${r.description ? esc(r.description) + ' · ' : ''}참여자 ${count}명${here ? ` · <span class="live-dot"></span>${here}명 접속 중` : ''}</div>
+        </div>
+        <div class="chev" aria-hidden="true">›</div>
+      </button>`;
+  }).join('');
+}
+
+// ── 비밀번호 키 보관 (이 브라우저에 12시간) ──
+const keyStoreName = () => 'board.roomKeys.' + safeSeg(me.id);
+async function rememberKey(roomId, key) {
+  const raw = new Uint8Array(await crypto.subtle.exportKey('raw', key));
+  const all = local.get(keyStoreName(), {});
+  all[roomId] = { k: bytesToB64(raw), exp: Date.now() + ROOM_KEY_HOURS * 3600 * 1000 };
+  local.set(keyStoreName(), all);
+}
+async function loadKey(roomId) {
+  const all = local.get(keyStoreName(), {});
+  const e = all[roomId];
+  if (!e || !(e.exp > Date.now())) {
+    if (e) { delete all[roomId]; local.set(keyStoreName(), all); }
+    return null;
+  }
+  try { return await crypto.subtle.importKey('raw', b64ToBytes(e.k), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']); }
+  catch { return null; }
+}
+function forgetKey(roomId) {
+  const all = local.get(keyStoreName(), {});
+  delete all[roomId];
+  local.set(keyStoreName(), all);
+}
+
+// ── 입장 ──
+async function openRoom(id) {
+  const r = rooms.find(x => x.id === id);
+  if (!r) return;
+  const cached = await loadKey(id);
+  if (cached && await keyMatchesRoom(r, cached)) { enterRoom(id, cached); return; }
+  if (cached) forgetKey(id);
+  askPassword(id);
+}
+
+function askPassword(id) {
+  pendingRoom = id;
+  const r = rooms.find(x => x.id === id);
+  $('pw-title').textContent = r ? (r.name || '비밀번호 입력') : '비밀번호 입력';
+  $('pw-input').value = '';
+  $('pw-error').hidden = true;
+  openModal('modal-password');
+  focusSoon($('pw-input'), $('modal-password'));
+}
+
+async function submitPassword() {
+  const pw  = $('pw-input').value;
+  const err = $('pw-error');
+  const btn = $('pw-submit');
+  const showErr = t => { err.textContent = t; err.hidden = false; };
+  if (!pw) { showErr('비밀번호를 입력해 주세요.'); return; }
+  const r = rooms.find(x => x.id === pendingRoom);
+  if (!r || !r.kdf || !r.check) { showErr('방 정보를 읽지 못했습니다.'); return; }
+
+  btn.disabled = true;
+  try {
+    const key = await deriveKey(pw, r.kdf.salt, Number(r.kdf.iter) || KDF_ITER);
+    if (!await keyMatchesRoom(r, key)) { showErr('비밀번호가 일치하지 않습니다.'); return; }
+    await rememberKey(r.id, key);
+    closeModal('modal-password');
+    enterRoom(r.id, key);
+  } catch {
+    showErr('입장하지 못했습니다. 다시 해 주세요.');
+  } finally { btn.disabled = false; }
+}
+
+function makeRoomCtx(id, key, doc) {
+  return {
+    id, key, doc,
+    log: new ChunkLog(`rooms/${id}/log`),
+    dec: new Map(),        // 메시지 id → 풀어 놓은 내용
+    els: new Map(),        // 메시지 id → 화면 요소
+    files: new Map(),      // 메시지 id → Promise<파일 바이트>
+    imgs: new Map(),       // 메시지 id → 사진 표시용 캐시
+    ephemeral: [],         // 들어옴/나감 안내 (저장하지 않음)
+    pending: false, busy: false, lastId: null,
+    enteredAt: Date.now(), here: null, leaving: false,
+  };
+}
+
+function enterRoom(id, key, fallbackDoc) {
+  leaveRoomQuietly();
+  const doc = rooms.find(x => x.id === id) || fallbackDoc;
+  if (!doc) return;
+  const ctx = makeRoomCtx(id, key, doc);
+  current = ctx;
+  ctx.here = hereSet(id);
+
+  renderRoomHead();
+  $('room-browser').hidden = true;
+  $('room-view').classList.add('active');
+  $('chat-scroll').innerHTML = SPINNER;
+  setSyncState('불러오는 중…');
+
+  ctx.log.subscribe(() => { if (ctx === current) queueRoomRender(ctx); },
+                    () => { if (ctx === current) setSyncState('대화를 불러오지 못했습니다. 페이지를 새로 열어 주세요.', 'down'); });
+  setPresence(id);
+  if (writable) focusSoon($('chat-input'));
+}
+
+function leaveRoomQuietly() {
+  if (!current) return;
+  const ctx = current;
+  current = null;
+  ctx.log.stop();
+  for (const c of ctx.imgs.values()) if (c.blob) URL.revokeObjectURL(c.blob);
+  setPresence(null);
+}
+
+function exitRoom() {
+  leaveRoomQuietly();
+  $('room-view').classList.remove('active');
+  $('room-browser').hidden = false;
+  renderRooms();
+}
+
+function onCurrentRoomChanged() {
+  const ctx = current;
+  if (!ctx || ctx.leaving) return;
+  const r = rooms.find(x => x.id === ctx.id);
+  if (!r) {
+    exitRoom();
+    forgetKey(ctx.id);
+    toast('방이 삭제되었거나 참여자 목록에서 빠졌습니다.');
+    return;
+  }
+  ctx.doc = r;
+  renderRoomHead();
+}
+
+async function renderRoomHead() {
+  const ctx = current;
+  if (!ctx) return;
+  const r = ctx.doc;
+  await profilesFor([r.ownerId, ...(r.members || [])]);
+  if (ctx !== current) return;
+  const isOwner = r.ownerId === me.id;
+  $('rv-name').textContent = r.name || '이름 없는 방';
+  $('rv-sub').textContent  = `${r.description ? r.description + ' · ' : ''}방장 ${pName(r.ownerId)} · 참여자 ${(r.members || []).length}명`;
+  $('rv-invite').hidden    = !isOwner || !writable;
+  $('rv-leave').hidden     = !writable;
+  $('rv-leave').textContent = isOwner ? '방 삭제' : '나가기';
+  renderMembers();
+}
+
+function renderMembers() {
+  const ctx = current;
+  if (!ctx) return;
+  const on = cap.room ? onlineSet() : null;
+  const r = ctx.doc;
+  $('rv-members').innerHTML = (r.members || []).map(id => `
+    <span class="member-chip ${on && !on.has(id) ? 'off' : ''}" title="${on ? (on.has(id) ? '접속 중' : '접속 안 함') : ''}">
+      <img src="${esc(pAvatar(id))}" alt="" />${esc(pName(id))}${id === r.ownerId ? ' 👑' : ''}
+    </span>`).join('');
+}
+
+function setSyncState(text, cls = '') {
+  const el = $('sync-state');
+  el.textContent = text;
+  el.className = 'sync-state ' + cls;
+}
+let storeOnline = true;
+function updateSyncState() {
+  const ctx = current;
+  if (!ctx || !ctx.log.ready) return;
+  const n = cap.room ? hereSet(ctx.id).size : 0;
+  if (!storeOnline) { setSyncState('저장소에 연결하지 못했습니다. 다시 시도하는 중…', 'down'); return; }
+  setSyncState(n ? `연결됨 · 지금 ${n}명` : '연결됨 · 새 글을 몇 초마다 확인합니다', 'live');
+}
+if (window.onStoreState) window.onStoreState(ok => { storeOnline = ok; updateSyncState(); });
+
+// ══════════════════════════════════════════════════════════
+// 공유방 — 대화
+// ══════════════════════════════════════════════════════════
+function queueRoomRender(ctx) {
+  ctx.pending = true;
+  if (ctx.busy) return;
+  ctx.busy = true;
+  (async () => {
+    try {
+      while (ctx.pending) {
+        ctx.pending = false;
+        try { await renderRoomItems(ctx); } catch (e) { console.error(e); }
+      }
+    } finally { ctx.busy = false; }
+  })();
+}
+
+async function renderRoomItems(ctx) {
+  if (!ctx.log.ready) return;
+  const items = ctx.log.items();
+  for (const it of items) {
+    if (ctx.dec.has(it.id)) continue;
+    let b;
+    try { b = await decryptJSON(ctx.key, it.e); } catch { b = null; }
+    if (!b || typeof b !== 'object') b = { k: 'broken' };
+    ctx.dec.set(it.id, {
+      id: it.id, t: Number(it.t) || 0, uid: it.uid,
+      k: typeof b.k === 'string' ? b.k : 'broken',
+      text: typeof b.text === 'string' ? b.text : '',
+      file: b.file && typeof b.file === 'object' && typeof b.file.name === 'string' ? b.file : null,
+      ev: typeof b.ev === 'string' ? b.ev : '',
+      ids: Array.isArray(b.ids) ? b.ids.filter(x => typeof x === 'string') : [],
+    });
+  }
+  const live = new Set(items.map(i => i.id));
+  for (const id of [...ctx.dec.keys()]) if (!live.has(id)) ctx.dec.delete(id);
+
+  const departed = [...ctx.dec.values()].filter(m => m.k === 'system' && m.ev === 'left');
+  const eph = ctx.ephemeral.filter(e => !(e.pv === 'left'
+    && departed.some(m => m.uid === e.uid && e.t >= m.t - 1500 && e.t <= m.t + 20000)));
+  const all = [...ctx.dec.values(), ...eph]
+    .sort((a, b) => (a.t - b.t) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const shown = all.slice(-MSG_RENDER_LIMIT);
+  await profilesFor(shown.flatMap(m => [m.uid, ...(m.ids || [])]));
+  if (ctx !== current) return;
+  paintChat(ctx, shown);
+  updateSyncState();
+}
+
+function paintChat(ctx, shown) {
+  const box = $('chat-scroll');
+  const first = ctx.lastId === null && !ctx.painted;
+  const atBottom = first || box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  const prevTop = box.scrollTop;
+
+  const keep = new Set(shown.map(m => m.id));
+  for (const id of [...ctx.els.keys()]) if (!keep.has(id)) ctx.els.delete(id);
+  const nodes = shown.map(m => {
+    let el = ctx.els.get(m.id);
+    if (!el) { el = msgEl(ctx, m); ctx.els.set(m.id, el); }
+    return el;
+  });
+
+  if (!nodes.length) {
+    box.innerHTML = emptyHtml(cap.assets && writable ? '첫 메시지를 남겨 보세요. 파일을 끌어다 놓아도 됩니다.' : '첫 메시지를 남겨 보세요.');
+  } else {
+    box.replaceChildren(...nodes);
+  }
+  const last = shown[shown.length - 1];
+  const newMine = last && last.id !== ctx.lastId && last.uid === me.id && last.k !== 'presence';
+  box.scrollTop = (atBottom || newMine) ? box.scrollHeight : prevTop;
+  ctx.lastId = last ? last.id : null;
+  ctx.painted = true;
+}
+
+function systemText(m) {
+  if (m.k === 'presence') return m.text;
+  if (m.ev === 'invite') return `${m.ids.map(pName).join(', ')} 님이 초대되었습니다`;
+  if (m.ev === 'left')   return `${pName(m.uid)} 님이 방을 떠났습니다`;
+  return m.text || '';
+}
+
+function msgEl(ctx, m) {
+  if (m.k === 'system' || m.k === 'presence') {
+    const el = document.createElement('div');
+    el.className = 'msg-system';
+    el.textContent = systemText(m);
+    return el;
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'msg' + (m.uid === me.id ? ' mine' : '');
+
+  const av = document.createElement('img');
+  av.className = 'av'; av.alt = ''; av.src = pAvatar(m.uid);
+
+  const body = document.createElement('div');
+  body.className = 'body';
+  const who = document.createElement('div');
+  who.className = 'who';
+  who.textContent = pName(m.uid);
+  body.appendChild(who);
+
+  if ((m.k === 'file' || m.k === 'image') && m.file) {
+    body.appendChild(attachmentEl(ctx, m));
+  } else {
+    const b = document.createElement('div');
+    b.className = 'bubble' + (m.k === 'text' ? '' : ' broken');
+    b.textContent = m.k === 'text' ? m.text : '열 수 없는 메시지입니다.';
+    body.appendChild(b);
+  }
+  const time = document.createElement('div');
+  time.className = 'msg-time';
+  time.textContent = fmtTime(m.t);
+  body.appendChild(time);
+
+  wrap.append(av, body);
+  return wrap;
+}
+
+function attachmentEl(ctx, m) {
+  const f = m.file;
+  const div = document.createElement('div');
+  div.className = 'att';
+  const mid = esc(m.id), name = esc(f.name);
+  const kind = m.k === 'image' ? 'image' : kindOf(f.name);
+
+  if (kind === 'image') {
+    const canPreview = (Number(f.size) || 0) <= MAX_IMAGE_PREVIEW;
+    div.innerHTML = `
+      ${canPreview ? `<img class="shot pending" alt="${name}" data-act="open-image" data-mid="${mid}" />` : ''}
+      <div class="att-head"><span class="ai">🖼</span><span class="an">${name}</span></div>
+      <div class="att-sub">${fmtSize(f.size)}${canPreview ? '' : ' · 미리보기 없이 내려받아 확인해 주세요'}</div>
+      <div class="att-acts"><button class="btn-dl" data-act="save-orig" data-mid="${mid}">↓ 내려받기</button></div>`;
+    const img = div.querySelector('img');
+    if (img) loadImagePreview(ctx, m, img);
+  } else if (kind === 'text') {
+    const txtName = esc(baseName(f.name) + '.txt');
+    div.innerHTML = `
+      <div class="att-head"><span class="ai">📄</span><span class="an">${name}</span><span class="txt-badge">${txtName}</span></div>
+      <div class="att-sub">${fmtSize(f.size)} · 참여자 모두가 볼 수 있습니다</div>
+      <div class="att-acts">
+        <button class="btn btn-ghost btn-sm" data-act="text-full" data-mid="${mid}">전체 보기</button>
+        <button class="btn-dl" data-act="save-txt" data-mid="${mid}">↓ .txt로 받기</button>
+        <button class="btn-dl alt" data-act="save-orig" data-mid="${mid}">원본</button>
+      </div>
+      <pre class="txtview">불러오는 중…</pre>`;
+    loadTextPreview(ctx, m, div.querySelector('pre'));
+  } else {
+    div.innerHTML = `
+      <div class="att-head"><span class="ai">${fileIcon(f.name)}</span><span class="an">${name}</span></div>
+      <div class="att-sub">${fmtSize(f.size)}</div>
+      <div class="att-acts"><button class="btn-dl" data-act="save-orig" data-mid="${mid}">↓ 내려받기</button></div>`;
+  }
+  return div;
+}
+
+// 방 파일: 조각을 모아 비밀번호 키로 풀기 (한 번 받은 파일은 기억)
+function roomFileBytes(ctx, m) {
+  if (!ctx.files.has(m.id)) {
+    const p = (async () => {
+      const enc = await fetchParts(m.file.parts);
+      return decryptBytes(ctx.key, m.file.iv, enc);
+    })();
+    p.catch(() => ctx.files.delete(m.id));
+    ctx.files.set(m.id, p);
+  }
+  return ctx.files.get(m.id);
+}
+
+async function imageCache(ctx, m) {
+  if (!ctx.imgs.has(m.id)) {
+    const bytes = await roomFileBytes(ctx, m);
+    const mime = IMAGE_MIME[extOf(m.file.name)] || (String(m.file.type).startsWith('image/') ? m.file.type : 'image/png');
+    if (!ctx.imgs.has(m.id)) ctx.imgs.set(m.id, { bytes, mime, blob: null, data: null });
+  }
+  return ctx.imgs.get(m.id);
+}
+
+async function loadImagePreview(ctx, m, img) {
+  try {
+    const cache = await imageCache(ctx, m);
+    const ok = await showImage(img, cache);
+    img.classList.remove('pending');
+    if (!ok) img.classList.add('failed');
+  } catch {
+    img.classList.remove('pending');
+    img.classList.add('failed');
+  }
+}
+
+async function loadTextPreview(ctx, m, pre) {
+  if ((Number(m.file.size) || 0) > MAX_PREVIEW_BYTES) {
+    pre.textContent = '2MB 이하 파일만 화면에 펼칠 수 있습니다. 내려받아 확인해 주세요.';
+    return;
+  }
+  try {
+    const text = decodeText(await roomFileBytes(ctx, m));
+    pre.textContent = text.length > 8000 ? text.slice(0, 8000) + '\n…(전체 보기에서 이어집니다)' : text;
+  } catch {
+    pre.textContent = '내용을 펼치지 못했습니다.';
+  }
+}
+
+let textView = null;
+async function openTextFull(ctx, m) {
+  textView = { ctx, m };
+  $('tv-name').textContent = baseName(m.file.name) + '.txt';
+  $('tv-sub').textContent  = `원본 파일: ${m.file.name}`;
+  $('tv-body').textContent = '불러오는 중…';
+  openModal('modal-text');
+  if ((Number(m.file.size) || 0) > MAX_PREVIEW_BYTES) {
+    $('tv-body').textContent = '2MB 이하 파일만 화면에 펼칠 수 있습니다. 내려받아 확인해 주세요.';
+    return;
+  }
+  try {
+    const text = decodeText(await roomFileBytes(ctx, m));
+    if (textView && textView.m === m) $('tv-body').textContent = text;
+  } catch {
+    $('tv-body').textContent = '내용을 불러오지 못했습니다.';
+  }
+}
+
+async function openImage(ctx, m) {
+  const img = $('lb-img');
+  img.alt = m.file.name;
+  img.removeAttribute('src');
+  openModal('lightbox');
+  try { await showImage(img, await imageCache(ctx, m)); }
+  catch { closeModal('lightbox'); toast('사진을 불러오지 못했습니다.', 'error'); }
+}
+
+async function saveRoomFile(ctx, m, asTxt, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const bytes = await roomFileBytes(ctx, m);
+    if (asTxt) await saveText(m.file.name, decodeText(bytes));
+    else       await saveBytes(m.file.name, bytes);
+  } catch {
+    toast('파일을 불러오지 못했습니다.', 'error');
+  } finally { if (btn) btn.disabled = false; }
+}
+
+// ── 보내기 ──
+async function sendChat() {
+  const input = $('chat-input');
+  const text  = input.value.trim();
+  if (!text || !current) return;
+  if (!writable) { toast(MSG.readonly, 'error'); return; }
+  const ctx = current;
+  input.value = '';
+  autoGrow(input);
+  try {
+    const e = await encryptJSON(ctx.key, { k: 'text', text: text.slice(0, 4000) });
+    await ctx.log.append({ id: newId(), t: Date.now(), e });
+  } catch (err) {
+    if (!input.value) { input.value = text; autoGrow(input); }
+    handleWriteError(err, '메시지를 보내지 못했습니다.');
+  }
+}
+
+async function uploadToRoom(files) {
+  if (!files || !files.length || !current) return;
+  if (!writable) { toast(MSG.readonly, 'error'); return; }
+  if (!cap.assets) { toast(MSG.noAssets, 'error'); return; }
+  const ctx = current;
+  for (const f of Array.from(files)) await uploadOneToRoom(ctx, f);
+}
+
+async function uploadOneToRoom(ctx, file) {
+  if (file.size > MAX_FILE_MB * 1048576) {
+    toast(`'${file.name}' 파일이 너무 큽니다. 최대 ${MAX_FILE_MB}MB 까지 올릴 수 있습니다.`, 'error');
+    return;
+  }
+  let parts = [];
+  setProgress('room', file.name, 0, '읽는 중');
+  try {
+    const raw = new Uint8Array(await file.arrayBuffer());
+    setProgress('room', file.name, 4, '암호화하는 중');
+    const { iv, data } = await encryptBytes(ctx.key, raw);
+    parts = await putParts(data, p => setProgress('room', file.name, 6 + p * 90, '올리는 중'));
+    const kind = kindOf(file.name) === 'image' ? 'image' : 'file';
+    const e = await encryptJSON(ctx.key, {
+      k: kind, file: { name: file.name, size: file.size, type: file.type || '', parts, iv },
+    });
+    await ctx.log.append({ id: newId(), t: Date.now(), e });
+    setProgress('room', file.name, 100);
+  } catch (err) {
+    if (parts.length) dropParts(parts);
+    if (errCode(err) === 'invalid_argument' && writeAnswer !== true) handleWriteError(err, '');
+    else toast(`'${file.name}' ${uploadErrorText(err)}`, 'error');
+  } finally {
+    hideProgress('room');
+  }
+}
+
+// ── 방 만들기 / 초대 ──
+const pick = { nr: new Set(), iv: new Set() };
+const pickExclude = { nr: [], iv: [] };
+const pickSeq = { nr: 0, iv: 0 };
+
+async function renderPickList(which) {
+  const seq = ++pickSeq[which];
+  const box = $(which + '-users');
+  const q = $(which + '-search').value.trim().toLowerCase();
+  const exclude = new Set([me.id, ...pickExclude[which]]);
+
+  const ids = peopleIds.filter(id => !exclude.has(id));
+  await profilesFor([...ids, ...pick[which]]);
+  let hits = [];
+  if (q && cap.user) { try { hits = await cap.user.search(q); } catch {} }
+  if (seq !== pickSeq[which]) return;
+  for (const h of hits || []) if (h && h.id) profCache.set(h.id, h);
+
+  const list = ids.filter(id => !q || pName(id).toLowerCase().includes(q));
+  for (const h of hits || []) if (h && h.id && !exclude.has(h.id) && !list.includes(h.id)) list.push(h.id);
+  for (const id of pick[which]) if (!list.includes(id)) list.unshift(id);
+
+  if (!list.length) {
+    box.innerHTML = emptyHtml(q ? '찾는 사람이 없습니다.'
+      : '초대할 수 있는 사람이 없습니다. 상대가 이 페이지를 한 번 열면 여기에 나타납니다.');
+    box.firstElementChild.style.padding = '24px 0';
+    return;
+  }
+  const on = cap.room ? onlineSet() : new Set();
+  box.innerHTML = list.map(id => {
+    const p = profCache.get(id);
+    return `<label class="pick-row">
+        <input type="checkbox" value="${esc(id)}" ${pick[which].has(id) ? 'checked' : ''} />
+        <img src="${esc(pAvatar(id))}" alt="" />
+        <div class="pm"><div class="pn">${esc(pName(id))}${p && p.guest ? '<span class="prov-tag">게스트</span>' : ''}</div></div>
+        ${on.has(id) ? '<span class="live-dot" title="접속 중"></span>' : ''}
+      </label>`;
+  }).join('');
+}
+
+function openCreateRoom() {
+  if (!writable || !me.id) { toast(MSG.readonly, 'error'); return; }
+  for (const id of ['nr-name', 'nr-desc', 'nr-pw', 'nr-search']) $(id).value = '';
+  pick.nr = new Set();
+  pickExclude.nr = [];
+  $('nr-users').innerHTML = SPINNER;
+  openModal('modal-create');
+  renderPickList('nr');
+  focusSoon($('nr-name'), $('modal-create'));
+}
+
+async function submitCreateRoom() {
+  const name = $('nr-name').value.trim().slice(0, 40);
+  const desc = $('nr-desc').value.trim().slice(0, 60);
+  const pw   = $('nr-pw').value;
+  if (!name)         { toast('방 이름을 입력해 주세요.', 'error'); return; }
+  if (pw.length < 4) { toast('비밀번호는 4자 이상으로 정해 주세요.', 'error'); return; }
+
+  const btn = $('nr-submit');
+  btn.disabled = true;
+  try {
+    const salt  = bytesToB64(randomBytes(16));
+    const key   = await deriveKey(pw, salt, KDF_ITER);
+    const check = await encryptJSON(key, { ok: CHECK_WORD });
+    const ref   = cap.db.collection('rooms').doc();
+    const body  = {
+      name, description: desc, ownerId: me.id,
+      members: [me.id, ...[...pick.nr].filter(id => id !== me.id)],
+      createdAt: Date.now(), kdf: { salt, iter: KDF_ITER }, check, v: 1,
+    };
+    await ref.set(body);
+    await rememberKey(ref.id, key);
+    closeModal('modal-create');
+    toast(`'${name}' 방을 만들었습니다.`, 'success');
+    enterRoom(ref.id, key, Object.assign({ id: ref.id }, body));
+  } catch (e) {
+    handleWriteError(e, '방을 만들지 못했습니다.');
+  } finally { btn.disabled = false; }
+}
+
+function openInvite() {
+  if (!current) return;
+  pick.iv = new Set();
+  pickExclude.iv = [...(current.doc.members || [])];
+  $('iv-search').value = '';
+  $('iv-users').innerHTML = SPINNER;
+  openModal('modal-invite');
+  renderPickList('iv');
+  focusSoon($('iv-search'), $('modal-invite'));
+}
+
+async function submitInvite() {
+  const ctx = current;
+  const ids = [...pick.iv];
+  if (!ctx) return;
+  if (!ids.length) { toast('초대할 사람을 골라 주세요.', 'error'); return; }
+  const btn = $('iv-submit');
+  btn.disabled = true;
+  try {
+    const ref  = cap.db.doc('rooms/' + ctx.id);
+    const snap = await ref.get();
+    if (!snap.exists) throw new Error('gone');
+    const members = Array.isArray(snap.data().members) ? snap.data().members : [];
+    const added = ids.filter(id => !members.includes(id));
+    if (added.length) {
+      await ref.update({ members: [...members, ...added] });
+      const e = await encryptJSON(ctx.key, { k: 'system', ev: 'invite', ids: added });
+      await ctx.log.append({ id: newId(), t: Date.now(), e });
+    }
+    closeModal('modal-invite');
+    toast(`${added.length}명을 초대했습니다. 비밀번호는 따로 알려 주세요.`, 'success');
+  } catch (e) {
+    handleWriteError(e, '초대하지 못했습니다.');
+  } finally { btn.disabled = false; }
+}
+
+async function leaveOrDeleteRoom() {
+  const ctx = current;
+  if (!ctx) return;
+  const owner = ctx.doc.ownerId === me.id;
+  const ok = await askConfirm(owner
+    ? `'${ctx.doc.name}' 방을 삭제할까요?\n대화와 방에 올린 파일이 모두 사라집니다.`
+    : `'${ctx.doc.name}' 방에서 나갈까요?\n다시 들어오려면 방장이 초대해야 합니다.`,
+    owner ? '방 삭제' : '나가기');
+  if (!ok || ctx !== current) return;
+
+  ctx.leaving = true;
+  try {
+    if (owner) {
+      if (cap.assets) {
+        for (const m of ctx.dec.values()) if (m.file && Array.isArray(m.file.parts)) await dropParts(m.file.parts);
+      }
+      await ctx.log.destroy();
+      await cap.db.doc('rooms/' + ctx.id).delete();
+    } else {
+      try {
+        const e = await encryptJSON(ctx.key, { k: 'system', ev: 'left' });
+        await ctx.log.append({ id: newId(), t: Date.now(), e });
+      } catch {}
+      const ref  = cap.db.doc('rooms/' + ctx.id);
+      const snap = await ref.get();
+      if (snap.exists) {
+        const members = (snap.data().members || []).filter(id => id !== me.id);
+        await ref.update({ members });
+      }
+    }
+    forgetKey(ctx.id);
+    if (current === ctx) exitRoom();
+    toast(owner ? '방을 삭제했습니다.' : '방에서 나왔습니다.');
+  } catch (e) {
+    ctx.leaving = false;
+    handleWriteError(e, '처리하지 못했습니다.');
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// 게시판
+// ══════════════════════════════════════════════════════════
+const postLog = new ChunkLog('posts');
+let posts = [];
+let postsSeq = 0;
+
+function subscribePosts() {
+  postLog.subscribe(renderPosts, () => { $('feed').innerHTML = emptyHtml('게시글을 불러오지 못했습니다. 페이지를 새로 열어 주세요.'); });
+}
+
+async function renderPosts(items) {
+  const seq = ++postsSeq;
+  posts = items.filter(p => typeof p.content === 'string')
+               .sort((a, b) => (Number(b.t) || 0) - (Number(a.t) || 0)).slice(0, LIST_LIMIT);
+  await profilesFor(posts.map(p => p.uid));
+  if (seq !== postsSeq) return;
+  const feed = $('feed');
+  if (!posts.length) { feed.innerHTML = emptyHtml('첫 번째 글을 작성해 보세요.', '✦'); return; }
+  feed.innerHTML = posts.map(p => `
+    <div class="post-card">
+      <div class="post-header">
+        <img src="${esc(pAvatar(p.uid))}" alt="" />
+        <div class="meta">
+          <div class="author">${esc(pName(p.uid))}</div>
+          <div class="date">${fmtDate(Number(p.t) || 0)}</div>
+        </div>
+        ${p.uid === me.id && writable ? `<button class="btn btn-danger" data-act="del-post" data-id="${esc(p.id)}">삭제</button>` : ''}
+      </div>
+      <div class="post-content">${esc(p.content)}</div>
+    </div>`).join('');
+}
+
+async function submitPost() {
+  const input = $('post-input');
+  const content = input.value.trim().slice(0, 1000);
+  if (!content) { toast('내용을 입력해 주세요.'); return; }
+  if (!writable) { toast(MSG.readonly, 'error'); return; }
+  const btn = $('submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  try {
+    await postLog.append({ id: newId(), t: Date.now(), content });
+    input.value = '';
+    updateCharCount();
+    toast('게시글이 등록되었습니다. ✓', 'success');
+  } catch (e) {
+    handleWriteError(e, '게시에 실패했습니다. 다시 시도해 주세요.');
+  } finally {
+    btn.disabled = !writable;
+    btn.textContent = '게시하기';
+  }
+}
+
+async function deletePost(id) {
+  if (!await askConfirm('게시글을 삭제할까요?', '삭제')) return;
+  try {
+    await postLog.remove(id);
+    toast('삭제되었습니다.');
+  } catch (e) { handleWriteError(e, '삭제에 실패했습니다.'); }
+}
+
+function updateCharCount() {
+  $('char-count').textContent = `${$('post-input').value.length} / 1000`;
+}
+
+// ══════════════════════════════════════════════════════════
+// 파일 전송 (누구나 보는 공용 목록)
+// ══════════════════════════════════════════════════════════
+const fileLog = new ChunkLog('files');
+let files = [];
+let filesSeq = 0;
+
+function subscribeFiles() {
+  fileLog.subscribe(renderFiles, () => { $('file-list').innerHTML = emptyHtml('파일 목록을 불러오지 못했습니다. 페이지를 새로 열어 주세요.'); });
+}
+
+async function renderFiles(items) {
+  const seq = ++filesSeq;
+  files = items.filter(f => typeof f.name === 'string' && Array.isArray(f.parts))
+               .sort((a, b) => (Number(b.t) || 0) - (Number(a.t) || 0)).slice(0, LIST_LIMIT);
+  await profilesFor(files.map(f => f.uid));
+  if (seq !== filesSeq) return;
+  const list = $('file-list');
+  if (!files.length) { list.innerHTML = emptyHtml('업로드된 파일이 없습니다.', '📂'); return; }
+  list.innerHTML = files.map(f => `
+    <div class="file-row">
+      <div class="fi">${fileIcon(f.name)}</div>
+      <div class="fm">
+        <div class="fn">${esc(f.name)}</div>
+        <div class="fd">${fmtSize(f.size)} · ${fmtDate(Number(f.t) || 0)} · ${esc(pName(f.uid))}</div>
+      </div>
+      <div class="fa">
+        <button class="btn-dl" data-act="dl-file" data-id="${esc(f.id)}">↓ 다운로드</button>
+        ${f.uid === me.id && writable ? `<button class="btn btn-danger btn-sm" data-act="del-file" data-id="${esc(f.id)}" aria-label="파일 삭제">✕</button>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+async function uploadFiles(list) {
+  if (!list || !list.length) return;
+  if (!writable) { toast(MSG.readonly, 'error'); return; }
+  if (!cap.assets) { toast(MSG.noAssets, 'error'); return; }
+  for (const f of Array.from(list)) await uploadOne(f);
+}
+
+async function uploadOne(file) {
+  if (file.size > MAX_FILE_MB * 1048576) {
+    toast(`'${file.name}' 파일이 너무 큽니다. 최대 ${MAX_FILE_MB}MB 까지 올릴 수 있습니다.`, 'error');
+    return;
+  }
+  let parts = [];
+  setProgress('files', file.name, 0, '읽는 중');
+  try {
+    const raw = new Uint8Array(await file.arrayBuffer());
+    parts = await putParts(raw, p => setProgress('files', file.name, 4 + p * 92, '올리는 중'));
+    await fileLog.append({ id: newId(), t: Date.now(), name: file.name, size: file.size, type: file.type || '', parts });
+    setProgress('files', file.name, 100);
+    toast(`'${file.name}' 업로드 완료 ✓`, 'success');
+  } catch (err) {
+    if (parts.length) dropParts(parts);
+    if (errCode(err) === 'invalid_argument' && writeAnswer !== true) handleWriteError(err, '');
+    else toast(`'${file.name}' ${uploadErrorText(err)}`, 'error');
+  } finally {
+    hideProgress('files');
+  }
+}
+
+async function downloadPublic(id, btn) {
+  const f = files.find(x => x.id === id);
+  if (!f) return;
+  if (btn) btn.disabled = true;
+  try { await saveBytes(f.name, await fetchParts(f.parts)); }
+  catch { toast('파일을 불러오지 못했습니다.', 'error'); }
+  finally { if (btn) btn.disabled = false; }
+}
+
+async function deleteFile(id) {
+  const f = files.find(x => x.id === id);
+  if (!f) return;
+  if (!await askConfirm(`'${f.name}' 파일을 삭제할까요?`, '삭제')) return;
+  try {
+    await fileLog.remove(id);
+    await dropParts(f.parts);
+    toast('파일이 삭제되었습니다.');
+  } catch (e) { handleWriteError(e, '삭제하지 못했습니다.'); }
+}
+
+// ══════════════════════════════════════════════════════════
+// 이벤트 연결
+// ══════════════════════════════════════════════════════════
+function wire() {
+  // 탭
+  $('tab-nav').addEventListener('click', e => {
+    const b = e.target.closest('[data-tab]');
+    if (b) switchTab(b.dataset.tab);
+  });
+
+  // 모달 닫기 (✕ · 취소 · 바깥 클릭 · Esc)
+  document.addEventListener('click', e => {
+    const c = e.target.closest('[data-close]');
+    if (c && (c.tagName === 'BUTTON' || e.target === c || c.id === 'lightbox')) { closeModal(c.dataset.close); return; }
+    if (e.target.classList && e.target.classList.contains('backdrop')) closeModal(e.target.id);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('.backdrop.open').forEach(m => closeModal(m.id));
+  });
+  $('cf-ok').addEventListener('click', () => settleConfirm(true));
+  $('cf-cancel').addEventListener('click', () => settleConfirm(false));
+
+  // 방 목록
+  $('room-list').addEventListener('click', e => {
+    const card = e.target.closest('[data-room]');
+    if (card) openRoom(card.dataset.room);
+  });
+  $('btn-new-room').addEventListener('click', openCreateRoom);
+  $('nr-submit').addEventListener('click', submitCreateRoom);
+  $('pw-submit').addEventListener('click', submitPassword);
+  $('pw-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) submitPassword(); });
+
+  // 초대 목록
+  for (const w of ['nr', 'iv']) {
+    $(w + '-search').addEventListener('input', () => renderPickList(w));
+    $(w + '-users').addEventListener('change', e => {
+      const cb = e.target;
+      if (cb.type !== 'checkbox') return;
+      if (cb.checked) pick[w].add(cb.value); else pick[w].delete(cb.value);
+    });
+  }
+
+  // 방 안
+  $('btn-back').addEventListener('click', exitRoom);
+  $('rv-invite').addEventListener('click', openInvite);
+  $('iv-submit').addEventListener('click', submitInvite);
+  $('rv-leave').addEventListener('click', leaveOrDeleteRoom);
+  $('btn-send').addEventListener('click', sendChat);
+  const chatInput = $('chat-input');
+  chatInput.addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229) return;        // 한글 조합 중 Enter 무시
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+  });
+  chatInput.addEventListener('input', () => autoGrow(chatInput));
+  $('btn-attach').addEventListener('click', () => $('room-file').click());
+  $('room-file').addEventListener('change', e => { const fl = Array.from(e.target.files || []); e.target.value = ''; uploadToRoom(fl); });
+
+  const chat = $('chat-scroll');
+  chat.addEventListener('dragover', e => { e.preventDefault(); if (cap.assets && writable) chat.classList.add('drag-over'); });
+  chat.addEventListener('dragleave', () => chat.classList.remove('drag-over'));
+  chat.addEventListener('drop', e => { e.preventDefault(); chat.classList.remove('drag-over'); uploadToRoom(e.dataTransfer && e.dataTransfer.files); });
+  chat.addEventListener('click', e => {
+    const t = e.target.closest('[data-act]');
+    const ctx = current;
+    if (!t || !ctx) return;
+    const m = ctx.dec.get(t.dataset.mid);
+    if (!m || !m.file) return;
+    const act = t.dataset.act;
+    if (act === 'open-image')     openImage(ctx, m);
+    else if (act === 'text-full') openTextFull(ctx, m);
+    else if (act === 'save-orig') saveRoomFile(ctx, m, false, t);
+    else if (act === 'save-txt')  saveRoomFile(ctx, m, true, t);
+  });
+
+  // 텍스트 뷰어
+  $('tv-copy').addEventListener('click', async () => {
+    const ok = await copyText($('tv-body').textContent);
+    toast(ok ? '복사했습니다.' : '복사하지 못했습니다.', ok ? 'success' : 'error');
+  });
+  $('tv-save').addEventListener('click', () => {
+    if (textView) saveRoomFile(textView.ctx, textView.m, true, $('tv-save'));
+  });
+
+  // 게시판
+  $('post-input').addEventListener('input', updateCharCount);
+  $('submit-btn').addEventListener('click', submitPost);
+  $('feed').addEventListener('click', e => {
+    const b = e.target.closest('[data-act="del-post"]');
+    if (b) deletePost(b.dataset.id);
+  });
+
+  // 파일 전송
+  const dz = $('drop-zone');
+  dz.addEventListener('click', () => $('file-input').click());
+  dz.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file-input').click(); } });
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag-over'); uploadFiles(e.dataTransfer && e.dataTransfer.files); });
+  $('file-input').addEventListener('change', e => { const fl = Array.from(e.target.files || []); e.target.value = ''; uploadFiles(fl); });
+  $('file-list').addEventListener('click', e => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    if (b.dataset.act === 'dl-file')  downloadPublic(b.dataset.id, b);
+    if (b.dataset.act === 'del-file') deleteFile(b.dataset.id);
+  });
+
+  // 파일을 엉뚱한 곳에 떨어뜨렸을 때 브라우저가 그 파일을 열지 않도록
+  window.addEventListener('dragover', e => e.preventDefault());
+  window.addEventListener('drop', e => e.preventDefault());
+}
+
+function wireAccount() {
+  const B = window.__board;
+  $('btn-account').addEventListener('click', () => {
+    $('ac-name').value = B.name();
+    $('ac-code').value = B.exportCode();
+    $('ac-token').value = '';
+    $('ac-repo').textContent = B.repo ? B.repo() : '';
+    $('ac-import').value = '';
+    $('ac-error').hidden = true;
+    openModal('modal-account');
+  });
+  $('ac-rename').addEventListener('click', async () => {
+    const v = $('ac-name').value.trim();
+    if (!v) { toast('이름을 입력해 주세요.', 'error'); return; }
+    try {
+      await B.rename(v);
+      $('badge-name').textContent = v; $('compose-name').textContent = v;
+      toast('이름을 바꿨습니다. 다른 사람 화면에는 새로 고침하면 반영됩니다.', 'success');
+    } catch { toast('이름을 바꾸지 못했습니다.', 'error'); }
+  });
+  $('ac-settoken').addEventListener('click', async () => {
+    const t = $('ac-token').value.trim();
+    if (!t) return;
+    try { await B.setToken(t); $('ac-token').value = ''; toast('토큰을 저장했습니다.', 'success'); }
+    catch { toast('토큰이 올바르지 않거나 권한이 없습니다.', 'error'); }
+  });
+  $('ac-copy').addEventListener('click', async () => {
+    const ok = await copyText($('ac-code').value);
+    toast(ok ? '복사했습니다.' : '복사하지 못했습니다.', ok ? 'success' : 'error');
+  });
+  $('ac-load').addEventListener('click', async () => {
+    const code = $('ac-import').value.trim();
+    if (!code) return;
+    try { await B.importCode(code); location.reload(); }
+    catch { $('ac-error').textContent = '코드가 올바르지 않습니다.'; $('ac-error').hidden = false; }
+  });
+}
+
+wire();
+wireAccount();
+boot().catch(err => {
+  console.error(err);
+  showGate('시작하지 못했습니다.', '페이지를 새로 열어 주세요.');
+});
+</script>
+</body>
+</html>

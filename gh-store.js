@@ -1,7 +1,9 @@
 /* GitHub 저장소 연결 — 서버 없이 GitHub Pages 에서 돌아가는 판
    · 신원: 이 PC(브라우저)에 저장되는 닉네임. GitHub 계정과는 무관합니다.
    · 저장: 문서는 data 브랜치, 첨부는 assets 브랜치 (Pages 브랜치를 건드리지 않아 사이트가 다시 빌드되지 않음)
+           실시간 편집 중인 파일 내용은 live 브랜치 — data 브랜치를 건드리지 않아 다른 화면이 목록을 다시 받지 않음
    · 실시간: 브랜치 머리글을 ETag 로 4초마다 확인 (바뀐 게 없으면 304 라서 사용량에 안 잡힘)
+             실시간 보기 창이 열려 있는 동안은 1.5초마다
    · 토큰: 저장소에 쓰기 위한 열쇠. 코드가 아니라 각자 브라우저에만 저장됩니다. */
 (function () {
   'use strict';
@@ -9,8 +11,9 @@
   const CFGKEY = 'board.gh.config.v1';
   const SEG = /^[A-Za-z0-9_\-.~:@+]{1,200}$/;
   const API_VER = '2022-11-28';
-  const DATA_BRANCH = 'data', ASSET_BRANCH = 'assets';
+  const DATA_BRANCH = 'data', ASSET_BRANCH = 'assets', LIVE_BRANCH = 'live';
   const POLL_MS = 4000;
+  const FAST_POLL_MS = 1500;
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const rand = n => Array.from(crypto.getRandomValues(new Uint8Array(n || 8)), b => b.toString(16).padStart(2, '0')).join('');
   const enc = new TextEncoder();
@@ -63,7 +66,8 @@
     if (opts.etag) headers['If-None-Match'] = opts.etag;
     let res;
     try {
-      res = await fetch(cfg.api + path, { method, headers, body: opts.body === undefined ? undefined : JSON.stringify(opts.body) });
+      res = await fetch(cfg.api + path, { method, headers, cache: opts.cache || 'default',
+                                          body: opts.body === undefined ? undefined : JSON.stringify(opts.body) });
     } catch { throw { code: 'unavailable', message: 'network' }; }
     if (res.status === 304) return { notModified: true, etag: opts.etag };
     if (res.status === 401 && !opts.quiet) { tokenBad = true; askToken(); }
@@ -96,7 +100,7 @@
   }
   async function shaOf(path, branch) {
     try {
-      const r = await gh('GET', `${R()}/contents/${encPath(path)}?ref=${branch}`, { accept: 'application/vnd.github.object+json' });
+      const r = await gh('GET', `${R()}/contents/${encPath(path)}?ref=${branch}`, { accept: 'application/vnd.github.object+json', cache: 'no-store' });
       return r.data && r.data.sha || null;
     } catch (e) { if (e.code === 'not_found') return null; throw e; }
   }
@@ -130,6 +134,7 @@
           setTreeSha(branch, path, null);
           return;
         } catch (e) {
+          if (e.code === 'not_found') { setTreeSha(branch, path, null); return; }   // 이미 지워짐 (목록이 잠깐 옛것이었을 때)
           if (e.code === 'conflict') { setTreeSha(branch, path, null); await sleep(250 + i * 400); continue; }
           if (e.code === 'rate_limited') { await sleep(Math.max((e.retryAfter || 0) * 1000, 2000 * (i + 1))); continue; }
           if (e.code === 'unauthenticated') { await askToken(); continue; }
@@ -141,7 +146,7 @@
   }
 
   // ── 트리(파일 목록) 캐시 ──
-  const trees = { [DATA_BRANCH]: new Map(), [ASSET_BRANCH]: new Map() };
+  const trees = { [DATA_BRANCH]: new Map(), [ASSET_BRANCH]: new Map(), [LIVE_BRANCH]: new Map() };
   const blobCache = new Map();            // blob sha → 내용 (sha 는 내용 해시라 영구 캐시 가능)
   const treeSha = (b, p) => (trees[b] || new Map()).get(p) || null;
   const setTreeSha = (b, p, sha) => { const t = trees[b]; if (!t) return; if (sha) t.set(p, sha); else t.delete(p); };
@@ -228,6 +233,15 @@
     try {
       do {
         l.again = false;
+        if (l.doc) {                                     // 문서 하나만 지켜보는 구독
+          try { await runDoc(l); }
+          catch (e) {
+            if (l.sig === null && l.err) l.err(e);
+            setTimeout(() => { if (listeners.has(l)) refresh(l); }, 3000);   // 받다가 끊기면 잠시 뒤 다시
+            break;
+          }
+          continue;
+        }
         let snap;
         try { snap = await runQuery(l.coll, l.where); }
         catch (e) { if (l.sig === null && l.err) l.err(e); break; }
@@ -237,6 +251,20 @@
     } finally { l.busy = false; }
   }
   const refreshAll = () => { for (const l of [...listeners]) refresh(l); };
+
+  // 문서 하나: 파일 목록의 sha 가 바뀔 때만 다시 읽음 (sha 는 내용 해시)
+  async function runDoc(l) {
+    const sha = treeSha(DATA_BRANCH, docPath(l.doc));
+    const sig = sha || '-';
+    if (sig === l.sig) return;
+    let data = null;
+    if (sha) {
+      const text = await readBlob(sha, 'text');        // 네트워크 오류는 위로 던져 다음에 다시 시도
+      try { data = JSON.parse(text); } catch { data = null; }
+    }
+    l.sig = sig;
+    if (listeners.has(l)) l.next(snapDoc(l.id, data));
+  }
 
   function collRef(path, where = []) {
     assertPath(path, false);
@@ -263,6 +291,12 @@
     return {
       id, path,
       get: async () => snapDoc(id, await readDoc(path)),
+      onSnapshot(next, err) {
+        const l = { doc: path, id, next, err, sig: null, busy: false, again: false };
+        listeners.add(l);
+        refresh(l);
+        return () => listeners.delete(l);
+      },
       set: data => write(data),
       update: async data => {
         const old = await readDoc(path);
@@ -282,8 +316,61 @@
   }
   const dbCap = Object.freeze({ doc: docRef, collection: collRef });
 
+  // ── 실시간 편집 채널 (live 브랜치) ──
+  // 내용이 자주 바뀌는 문서를 data 브랜치와 따로 둡니다. data 브랜치에 쓰면 열려 있는 모든 화면이
+  // 파일 목록을 다시 받아(요청 2~3회) 공유 토큰의 사용량이 금방 바닥나기 때문입니다.
+  // 읽기는 파일 하나를 ETag 로 확인 → 그대로면 304 라서 사용량에 잡히지 않습니다.
+  const liveCache = new Map();                   // 경로 → { etag, data }
+  let liveBranchOk = false;
+  async function liveBranch() {
+    if (liveBranchOk) return;
+    try { await gh('GET', `${R()}/branches/${LIVE_BRANCH}`, { quiet: true }); }
+    catch (e) { if (e.code !== 'not_found') throw e; await ensureBranch(LIVE_BRANCH); }
+    liveBranchOk = true;
+  }
+  const liveCap = Object.freeze({
+    async read(path) {                           // → { data, changed }   (없으면 data: null)
+      assertPath(path, true);
+      const c = liveCache.get(path);
+      let r;
+      try {
+        r = await gh('GET', `${R()}/contents/${encPath(docPath(path))}?ref=${LIVE_BRANCH}`,
+                     { accept: 'application/vnd.github.raw+json', raw: 'text', etag: c && c.etag, quiet: true, cache: 'no-store' });
+      } catch (e) {
+        if (e.code !== 'not_found') throw e;
+        liveCache.delete(path);
+        return { data: null, changed: !!c };
+      }
+      if (r.notModified && c) return { data: c.data, changed: false };
+      let data = null;
+      try { data = JSON.parse(r.text); } catch {}
+      liveCache.set(path, { etag: r.etag, data });
+      if (liveCache.size > 300) liveCache.delete(liveCache.keys().next().value);
+      return { data, changed: true };
+    },
+    async write(path, obj) {
+      assertPath(path, true);
+      await liveBranch();
+      await putFile(docPath(path), b64txt(JSON.stringify(obj)), LIVE_BRANCH, 'live ' + path);
+    },
+    async delete(path) {
+      assertPath(path, true);
+      liveCache.delete(path);
+      try { await delFile(docPath(path), LIVE_BRANCH); }
+      catch (e) { if (e.code !== 'not_found') throw e; }
+    },
+  });
+
   // ── 변경 확인 (ETag 롱폴링 대신 가벼운 주기 확인) ──
   let polling = false, headEtag = null, headSha = null, assetEtag = null;
+  let fastRefs = 0, wakePoll = null;
+  function napPoll(ms) {                         // 기다리다가 빠른 확인으로 바뀌면 바로 깨어남
+    return new Promise(r => {
+      const t = setTimeout(() => { wakePoll = null; r(); }, ms);
+      wakePoll = () => { clearTimeout(t); wakePoll = null; r(); };
+    });
+  }
+  const pollDelay = () => (fastRefs > 0 && !document.hidden ? FAST_POLL_MS : POLL_MS);
   async function pollOnce() {
     const r = await gh('GET', `${R()}/branches/${DATA_BRANCH}`, { etag: headEtag, quiet: true });
     if (r.notModified) return false;
@@ -302,12 +389,12 @@
       try {
         if (await pollOnce()) refreshAll();
         if (onlineCb) onlineCb(true);
-        delay = POLL_MS;
+        delay = pollDelay();
       } catch (e) {
         if (onlineCb) onlineCb(false, e);
         delay = Math.min(delay * 2, 60000);
       }
-      await sleep(delay);
+      await napPoll(delay);
     }
   }
   let onlineCb = null;
@@ -573,7 +660,7 @@
     return readyP;
   }
 
-  const caps = { db: dbCap, user: userCap, room: null, assets: assetsCap, downloads: downloadsCap };
+  const caps = { db: dbCap, user: userCap, room: null, assets: assetsCap, downloads: downloadsCap, live: liveCap };
   window.platform = Object.freeze({ use: async name => { await ready(); return caps[name] || null; } });
 
   // ── 내 정보 (⚙) ──
@@ -606,5 +693,9 @@
       saveIdent(); tokenBad = false; refreshAll();
     },
     repo: () => `${cfg.owner}/${cfg.repo}`,
+    livePoll(on) {                                // 실시간 보기 창을 여닫을 때
+      fastRefs = Math.max(0, fastRefs + (on ? 1 : -1));
+      if (on && wakePoll) wakePoll();
+    },
   };
 })();

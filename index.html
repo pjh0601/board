@@ -148,6 +148,16 @@
     }
     #user-badge .name  { font-weight: 500; font-size: 14px; }
     #user-badge .email { font-size: 12px; color: var(--muted); }
+    #user-badge .email.pub { color: var(--accent-ink); }
+    #btn-logout { padding: 7px 12px; font-size: 12px; flex-shrink: 0; }
+    .lo-lead { font-size: 14px; line-height: 1.7; margin-bottom: 14px; }
+    .lo-warn {
+      background: var(--danger-soft); color: var(--danger); border-radius: 10px;
+      padding: 10px 12px; font-size: 13px; line-height: 1.6; margin-bottom: 14px;
+    }
+    .lo-keep { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; cursor: pointer; line-height: 1.5; }
+    .lo-keep input { margin-top: 3px; accent-color: var(--accent-ink); width: 15px; height: 15px; flex-shrink: 0; }
+    @media (max-width: 480px) { #user-badge .email { display: none; } }
 
     /* ── 버튼 ── */
     .btn {
@@ -626,6 +636,7 @@
         <div class="email" id="badge-sub">이 PC로 접속 중</div>
       </div>
       <button class="icon-btn" id="btn-account" title="내 정보 · 다른 기기에서 이어쓰기" aria-label="내 정보">⚙</button>
+      <button class="btn btn-ghost" id="btn-logout" title="이 PC 에 저장된 이름·토큰을 지웁니다">로그아웃</button>
     </div>
   </header>
 
@@ -929,6 +940,44 @@
         <p class="field-error" id="ac-error" hidden></p>
       </div>
     </div>
+    <div class="modal-foot" style="justify-content:space-between;align-items:center">
+      <span style="font-size:12px;color:var(--muted)">공용 PC 라면 떠나기 전에 꼭</span>
+      <button class="btn btn-ghost btn-sm" id="ac-logout">이 PC 에서 로그아웃</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ 로그아웃 ══════════════ -->
+<div class="backdrop" id="modal-logout">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="lo-title">
+    <div class="modal-head">
+      <div>
+        <h3 id="lo-title">이 PC 에서 로그아웃</h3>
+        <div class="sub">다음 사람이 토큰 없이 들어오지 못하게 합니다</div>
+      </div>
+      <button class="x-btn" data-close="modal-logout" aria-label="닫기">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="lo-lead">이 PC(브라우저)에 저장된 <b>이름 · 토큰 · 방 비밀번호</b>를 지웁니다.
+        저장소에 올린 대화·게시글·파일은 그대로 남습니다.</p>
+      <div class="lo-warn" id="lo-owner" hidden></div>
+      <div class="form-group">
+        <label class="form-label" for="lo-code">내 접속 코드 — 다시 들어올 때 필요합니다</label>
+        <div style="display:flex;gap:8px">
+          <input class="form-input" id="lo-code" readonly />
+          <button class="btn btn-ghost btn-sm" id="lo-copy">복사</button>
+        </div>
+        <p class="field-error" style="color:var(--muted);line-height:1.6">
+          다음에 들어올 때 이 코드를 넣으면 같은 사람으로 이어집니다 (카톡 '나에게 보내기' 등에 보관하세요).
+          코드만으로는 들어올 수 없고 토큰이 함께 있어야 합니다.<br>
+          코드 없이 다시 들어오면 <b>새 사람</b>이 되어, 참여하던 방에 다시 초대받아야 하고 내가 올린 파일을 고치거나 지울 수 없습니다.</p>
+      </div>
+      <label class="lo-keep" id="lo-keep-wrap" hidden><input type="checkbox" id="lo-keep" /> <span>접속 코드를 따로 보관했습니다</span></label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost btn-sm" data-close="modal-logout">취소</button>
+      <button class="btn btn-primary btn-sm" id="lo-ok">로그아웃</button>
+    </div>
   </div>
 </div>
 
@@ -1048,6 +1097,12 @@ const local = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
+// 브라우저를 닫으면 사라지는 저장소 (공용 PC 로 들어왔을 때)
+const sess = {
+  get(k, d) { try { const v = sessionStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+const isTempPC = () => { try { return !!(window.__board && window.__board.temp && window.__board.temp()); } catch { return false; } };
 
 // ══════════════════════════════════════════════════════════
 // 암호화 (WebCrypto)
@@ -1558,6 +1613,7 @@ async function boot() {
   $('user-badge').hidden = false;
   $('badge-pic').src = me.avatarUrl;
   $('badge-name').textContent = me.name || '나';
+  if (isTempPC()) { $('badge-sub').textContent = '공용 PC · 창을 닫으면 로그아웃'; $('badge-sub').classList.add('pub'); }
   $('compose-pic').src = me.avatarUrl;
   $('compose-name').textContent = me.name || '나';
 
@@ -1707,26 +1763,27 @@ async function renderRooms() {
 
 // ── 비밀번호 키 보관 (이 브라우저에 12시간) ──
 const keyStoreName = () => 'board.roomKeys.' + safeSeg(me.id);
+const keyBox = () => (isTempPC() ? sess : local);
 async function rememberKey(roomId, key) {
   const raw = new Uint8Array(await crypto.subtle.exportKey('raw', key));
-  const all = local.get(keyStoreName(), {});
+  const all = keyBox().get(keyStoreName(), {});
   all[roomId] = { k: bytesToB64(raw), exp: Date.now() + ROOM_KEY_HOURS * 3600 * 1000 };
-  local.set(keyStoreName(), all);
+  keyBox().set(keyStoreName(), all);
 }
 async function loadKey(roomId) {
-  const all = local.get(keyStoreName(), {});
+  const all = keyBox().get(keyStoreName(), {});
   const e = all[roomId];
   if (!e || !(e.exp > Date.now())) {
-    if (e) { delete all[roomId]; local.set(keyStoreName(), all); }
+    if (e) { delete all[roomId]; keyBox().set(keyStoreName(), all); }
     return null;
   }
   try { return await crypto.subtle.importKey('raw', b64ToBytes(e.k), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']); }
   catch { return null; }
 }
 function forgetKey(roomId) {
-  const all = local.get(keyStoreName(), {});
+  const all = keyBox().get(keyStoreName(), {});
   delete all[roomId];
-  local.set(keyStoreName(), all);
+  keyBox().set(keyStoreName(), all);
 }
 
 // ── 입장 ──
@@ -2763,8 +2820,9 @@ async function flushLive(s) {
       if (s === live) $('lv-revert').hidden = false;
     }
     // 목록용 표시: 처음 저장할 때 · 2분마다 · 닫을 때
+    // (닫으면서 마지막으로 저장했으면 늘 적음 — 닫는 순간이 첫 저장이어도 '수정됨' 과 최신본 받기가 되도록)
     const now = Date.now();
-    if (final ? s.metaOn : (!s.metaOn || now - s.metaAt > LIVE_BEAT_MS)) {
+    if (final ? (s.metaOn || needContent) : (!s.metaOn || now - s.metaAt > LIVE_BEAT_MS)) {
       try {
         noteLiveWrite();
         await cap.db.doc(s.t.path).set({ uid: me.id, fid: s.t.fid, rev: s.rev, at: now, editing: !final });
@@ -3171,6 +3229,72 @@ function wire() {
   window.addEventListener('drop', e => e.preventDefault());
 }
 
+// ══════════════════════════════════════════════════════════
+// 로그아웃 — 이 PC 에 남은 이름·토큰·방 비밀번호를 지움
+// ══════════════════════════════════════════════════════════
+function openLogout() {
+  const B = window.__board;
+  if (!B) return;
+  $('lo-code').value = B.exportCode();
+  // 방장은 코드를 잃으면 그 방에 아무도 초대할 수 없게 되므로, 보관했다고 체크해야 진행
+  const owned = rooms.filter(r => r.ownerId === me.id);
+  if (current && current.doc && current.doc.ownerId === me.id && !owned.some(r => r.id === current.id)) owned.push(current.doc);
+  const warn = $('lo-owner');
+  warn.hidden = !owned.length;
+  if (owned.length) {
+    const names = owned.slice(0, 3).map(r => `'${r.name || '이름 없는 방'}'`).join(', ') + (owned.length > 3 ? ` 외 ${owned.length - 3}개` : '');
+    warn.textContent = `⚠ 방장인 방이 ${owned.length}개 있습니다 (${names}). 코드를 잃어버리면 다시 들어와도 새 사람이 되어, `
+      + '이 방에 사람을 초대하거나 방을 지울 수 있는 사람이 아무도 없게 됩니다.';
+  }
+  $('lo-keep-wrap').hidden = !owned.length;
+  $('lo-keep').checked = false;
+  $('lo-ok').disabled = !!owned.length;
+  $('lo-ok').textContent = '로그아웃';
+  openModal('modal-logout');
+}
+
+let loggingOut = false;
+async function doLogout() {
+  if (loggingOut) return;
+  loggingOut = true;
+  const btn = $('lo-ok');
+  btn.disabled = true;
+  btn.textContent = '마무리하는 중…';
+  try {
+    // 실시간 편집 중이던 내용부터 마저 저장
+    const s = live;
+    if (s) closeLive();
+    if (s && s.edit) {
+      const t0 = Date.now();
+      while ((s.saving || s.dirty || s.metaOn) && Date.now() - t0 < 10000) await sleep(100);
+    }
+    if (current) leaveRoomQuietly();
+    // 방 비밀번호 (이 브라우저에 12시간 보관하던 것) — 이 PC 에 남은 것은 누구 것이든 모두
+    for (const st of [localStorage, sessionStorage]) {
+      try {
+        for (let i = st.length - 1; i >= 0; i--) {
+          const k = st.key(i);
+          if (k && k.startsWith('board.roomKeys.')) st.removeItem(k);
+        }
+      } catch {}
+    }
+    await window.__board.logout();               // 올리는 중이던 것을 보낸 뒤 이름·토큰 지움
+  } finally {
+    location.reload();                           // 첫 화면 (이름·토큰 입력) 으로
+  }
+}
+
+function wireLogout() {
+  $('btn-logout').addEventListener('click', openLogout);
+  $('ac-logout').addEventListener('click', () => { closeModal('modal-account'); openLogout(); });
+  $('lo-copy').addEventListener('click', async () => {
+    const ok = await copyText($('lo-code').value);
+    toast(ok ? '접속 코드를 복사했습니다. 안전한 곳에 붙여넣어 보관하세요.' : '복사하지 못했습니다. 코드를 직접 적어 두세요.', ok ? 'success' : 'error');
+  });
+  $('lo-keep').addEventListener('change', () => { $('lo-ok').disabled = !$('lo-keep').checked; });
+  $('lo-ok').addEventListener('click', doLogout);
+}
+
 function wireAccount() {
   const B = window.__board;
   $('btn-account').addEventListener('click', () => {
@@ -3212,6 +3336,7 @@ function wireAccount() {
 wire();
 wireAccount();
 wireLive();
+wireLogout();
 boot().catch(err => {
   console.error(err);
   showGate('시작하지 못했습니다.', '페이지를 새로 열어 주세요.');

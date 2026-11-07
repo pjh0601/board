@@ -4,10 +4,13 @@
            실시간 편집 중인 파일 내용은 live 브랜치 — data 브랜치를 건드리지 않아 다른 화면이 목록을 다시 받지 않음
    · 실시간: 브랜치 머리글을 ETag 로 4초마다 확인 (바뀐 게 없으면 304 라서 사용량에 안 잡힘)
              실시간 보기 창이 열려 있는 동안은 1.5초마다
-   · 토큰: 저장소에 쓰기 위한 열쇠. 코드가 아니라 각자 브라우저에만 저장됩니다. */
+   · 토큰: 저장소에 쓰기 위한 열쇠. 코드가 아니라 각자 브라우저에만 저장됩니다.
+   · 로그아웃: 이 PC 에 저장된 이름·토큰을 지워, 다음 사람이 토큰 없이 들어오지 못하게 합니다.
+     '공용 PC' 로 들어오면 브라우저를 닫을 때 저절로 지워집니다 (sessionStorage). */
 (function () {
   'use strict';
   const IDKEY = 'board.gh.identity.v1';
+  const BYEKEY = 'board.gh.loggedOut';             // 방금 로그아웃함 (다음 첫 화면 안내용, 이 탭에만)
   const CFGKEY = 'board.gh.config.v1';
   const SEG = /^[A-Za-z0-9_\-.~:@+]{1,200}$/;
   const API_VER = '2022-11-28';
@@ -31,9 +34,23 @@
   // ── 설정 / 신원 ──
   const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+  const ssGet = (k, d) => { try { const v = sessionStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };
+  const ssSet = (k, v) => { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch {} };
+  const lsDel = k => { try { localStorage.removeItem(k); } catch {} };
+  const ssDel = k => { try { sessionStorage.removeItem(k); } catch {} };
   let cfg = null;      // { owner, repo, api }
-  let ident = lsGet(IDKEY, null);   // { uid, name, token }
-  const saveIdent = () => lsSet(IDKEY, ident);
+  // { uid, name, token, temp }  temp = 공용 PC → 브라우저를 닫으면 사라지는 곳(sessionStorage)에만 둠
+  let ident = lsGet(IDKEY, null) || ssGet(IDKEY, null);
+  const saveIdent = () => {
+    if (!ident) return;
+    if (ident.temp) { ssSet(IDKEY, ident); lsDel(IDKEY); }
+    else            { lsSet(IDKEY, ident); ssDel(IDKEY); }
+  };
+  // 다른 탭에서 로그아웃하면 이 탭도 따라서 첫 화면으로
+  window.addEventListener('storage', e => {
+    if ((e.key === IDKEY || e.key === null) && e.storageArea === localStorage && !e.newValue
+        && ident && !ident.temp) location.reload();
+  });
 
   async function loadConfig() {
     let file = null;
@@ -386,6 +403,7 @@
     polling = true;
     let delay = POLL_MS;
     for (;;) {
+      if (!ident) return;                          // 로그아웃함
       try {
         if (await pollOnce()) refreshAll();
         if (onlineCb) onlineCb(true);
@@ -496,7 +514,13 @@
       .idgate p.lead{color:var(--muted);font-size:13px;margin-bottom:18px;line-height:1.7}
       .idgate .hint{color:var(--muted);font-size:11px;margin-top:6px;line-height:1.6}
       .idgate .hint a{color:var(--accent-ink)}
-      .idgate .err{color:var(--danger);font-size:12px;margin-top:10px;min-height:1em}`;
+      .idgate .err{color:var(--danger);font-size:12px;margin-top:10px;min-height:1em}
+      .idgate details{margin:-4px 0 14px;font-size:13px}
+      .idgate summary{cursor:pointer;color:var(--accent-ink);font-size:12px;margin-bottom:8px}
+      .idgate .chk{display:flex;gap:8px;align-items:flex-start;font-size:13px;margin:0 0 16px;cursor:pointer;line-height:1.5}
+      .idgate .chk input{margin-top:3px;accent-color:var(--accent-ink);width:15px;height:15px;flex-shrink:0}
+      .idgate .bye{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;
+        font-size:13px;line-height:1.6;margin-bottom:16px}`;
     document.head.appendChild(st);
   }
 
@@ -523,6 +547,16 @@
 
   const peopleDoc = () => ({ uid: ident.uid, name: ident.name, joinedAt: Date.now() });
 
+  // 내 접속 코드 = { uid, name } 를 base64 로. 코드만으로는 못 들어오고 토큰이 함께 있어야 함
+  const b64e = s => btoa(unescape(encodeURIComponent(s)));
+  const b64d = s => decodeURIComponent(escape(atob(s)));
+  function readCode(code) {
+    let v;
+    try { v = JSON.parse(b64d(String(code).trim())); } catch { throw new Error('bad'); }
+    if (!v || typeof v.uid !== 'string' || !/^[A-Za-z0-9_-]{3,80}$/.test(v.uid)) throw new Error('bad');
+    return { uid: v.uid, name: String(v.name || '').slice(0, 20) };
+  }
+
   async function ensureBranches() {
     for (const br of [DATA_BRANCH, ASSET_BRANCH]) {
       try { await refreshTree(br); }
@@ -532,12 +566,19 @@
 
   // 토큰이 실제로 쓸 수 있는지 '진짜 쓰기'로 확인합니다.
   // (권한 표시만 보고 판단하면 정상 토큰을 잘못 막을 수 있어, 어차피 필요한 등록 작업으로 확인)
-  async function verifyAndJoin(name, token) {
+  async function verifyAndJoin(name, token, opts = {}) {
     const prev = ident;
-    ident = { uid: (prev && prev.uid) || ('u_' + rand(10)), name, token };
+    const from = opts.code ? readCode(opts.code) : null;      // 전에 쓰던 사람으로
+    const uid = from ? from.uid : ((prev && prev.uid) || ('u_' + rand(10)));
+    ident = { uid, name: name || (from && from.name) || '', token, temp: !!opts.temp };
     try {
       await gh('GET', R(), { quiet: true });
       await ensureBranches();
+      if (from && !name) {                                    // 이름을 비워 두면 저장소에 있는 지금 이름을 따름
+        const doc = await readDoc('people/' + uid);
+        if (doc && doc.name) ident.name = String(doc.name).slice(0, 20);
+      }
+      if (!ident.name) ident.name = '이름 없음';
       await putFile(docPath('people/' + ident.uid), b64txt(JSON.stringify(peopleDoc())), DATA_BRANCH, 'join');
     } catch (e) {
       ident = prev;
@@ -581,28 +622,45 @@
     });
   }
 
-  async function askJoin() {                      // 닉네임 + 토큰
+  async function askJoin() {                      // 닉네임 + 토큰 (+ 전에 쓰던 사람의 접속 코드)
     await domReady; style();
+    const bye = ssGet(BYEKEY, null);
+    ssDel(BYEKEY);
     return new Promise(resolve => {
       const w = gate(`<h2>Board</h2>
-        <p class="lead">처음 오셨네요. 이름과 접근 토큰만 넣으면 바로 들어갑니다.<br>
+        ${bye ? `<div class="bye">✓ 로그아웃했습니다. 이 PC 에는 이름·토큰·방 비밀번호가 남아 있지 않습니다.
+                 ${bye === 'temp' ? '' : '<br>공용 PC 였다면 브라우저 창도 닫아 주세요.'}</div>` : ''}
+        <p class="lead">${bye ? '다시 들어오려면' : '처음 오셨네요.'} 이름과 접근 토큰만 넣으면 바로 들어갑니다.<br>
         이 PC 에 저장되어, 다음부터는 주소만 열면 자동으로 들어옵니다.</p>
         <div class="form-group"><label class="form-label" for="g-name">이름 (닉네임)</label>
           <input class="form-input" id="g-name" maxlength="20" autocomplete="nickname" placeholder="예: 준형"></div>
         <div class="form-group"><label class="form-label" for="g-token">접근 토큰</label>
           <input class="form-input" id="g-token" type="password" autocomplete="off" placeholder="github_pat_…">
           ${tokenHelp()}</div>
+        <details${bye ? ' open' : ''}><summary>전에 쓰던 사람으로 들어오기 (내 접속 코드)</summary>
+          <input class="form-input" id="g-code" autocomplete="off" spellcheck="false" placeholder="로그아웃할 때 보관한 코드를 붙여넣으세요">
+          <p class="hint">코드를 넣으면 이름은 비워 둬도 됩니다. 전에 쓰던 이름·참여한 방·올린 파일이 그대로 이어집니다.</p>
+        </details>
+        <label class="chk"><input type="checkbox" id="g-temp"${bye === 'temp' ? ' checked' : ''}>
+          <span><b>공용 PC예요</b> — 브라우저를 닫으면 자동으로 로그아웃됩니다.</span></label>
+        <p class="hint" id="g-temp-hint" style="margin:-10px 0 16px"${bye === 'temp' ? '' : ' hidden'}>
+          브라우저가 비밀번호(토큰)를 저장할지 물으면 꼭 <b>저장 안 함</b>을 눌러 주세요.</p>
         <button class="btn btn-primary go" style="width:100%">들어가기</button>
         <div class="err"></div>`,
         async (wrap, err) => {
           const name = wrap.querySelector('#g-name').value.trim();
           const token = wrap.querySelector('#g-token').value.trim();
-          if (!name) { err.textContent = '이름을 입력해 주세요.'; return; }
+          const code = wrap.querySelector('#g-code').value.trim();
+          const temp = wrap.querySelector('#g-temp').checked;
+          if (!name && !code) { err.textContent = '이름을 입력해 주세요.'; return; }
           if (!token) { err.textContent = '토큰을 붙여넣어 주세요.'; return; }
-          try { await verifyAndJoin(name, token); }
+          if (code) { try { readCode(code); } catch { err.textContent = '접속 코드가 올바르지 않습니다. 보관한 코드를 그대로 붙여넣어 주세요.'; return; } }
+          try { await verifyAndJoin(name, token, { code, temp }); }
           catch (e) { err.textContent = joinErrorText(e); return; }
           w.remove(); resolve();
         });
+      const tc = w.querySelector('#g-temp');
+      tc.addEventListener('change', () => { w.querySelector('#g-temp-hint').hidden = !tc.checked; });
     });
   }
 
@@ -664,14 +722,11 @@
   window.platform = Object.freeze({ use: async name => { await ready(); return caps[name] || null; } });
 
   // ── 내 정보 (⚙) ──
-  const b64e = s => btoa(unescape(encodeURIComponent(s)));
-  const b64d = s => decodeURIComponent(escape(atob(s)));
   window.__board = {
     name: () => (ident && ident.name) || '',
     exportCode: () => b64e(JSON.stringify({ uid: ident.uid, name: ident.name })),
     async importCode(code) {
-      let v; try { v = JSON.parse(b64d(String(code).trim())); } catch { throw new Error('bad'); }
-      if (!v || typeof v.uid !== 'string') throw new Error('bad');
+      const v = readCode(code);
       ident.uid = v.uid;
       ident.name = String(v.name || ident.name).slice(0, 20);
       try {                                   // 저장소에 있는 현재 이름을 따름 (그 사이 바꿨을 수 있음)
@@ -693,6 +748,15 @@
       saveIdent(); tokenBad = false; refreshAll();
     },
     repo: () => `${cfg.owner}/${cfg.repo}`,
+    temp: () => !!(ident && ident.temp),         // 공용 PC 로 들어왔는지
+    // 이 PC 에서 로그아웃: 올리는 중이던 것을 마저 보낸 뒤 이름·토큰을 지움 (방 비밀번호는 화면 쪽에서 지움)
+    async logout() {
+      try { await Promise.race([wq, sleep(10000)]); } catch {}
+      const wasTemp = !!(ident && ident.temp);
+      lsDel(IDKEY); ssDel(IDKEY);
+      ident = null;
+      ssSet(BYEKEY, wasTemp ? 'temp' : '1');
+    },
     livePoll(on) {                                // 실시간 보기 창을 여닫을 때
       fastRefs = Math.max(0, fastRefs + (on ? 1 : -1));
       if (on && wakePoll) wakePoll();

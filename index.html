@@ -151,6 +151,7 @@
     #user-badge .email.pub { color: var(--accent-ink); }
     #btn-logout { padding: 7px 12px; font-size: 12px; flex-shrink: 0; }
     .lo-lead { font-size: 14px; line-height: 1.7; margin-bottom: 14px; }
+    .dz-sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
     .lo-warn {
       background: var(--danger-soft); color: var(--danger); border-radius: 10px;
       padding: 10px 12px; font-size: 13px; line-height: 1.6; margin-bottom: 14px;
@@ -730,10 +731,11 @@
   <div id="panel-files" class="panel" role="tabpanel" aria-labelledby="tab-files">
 
     <div class="section-card" id="upload-card" hidden>
-      <div class="section-title">📤 파일 업로드 (최대 50MB)</div>
+      <div class="section-title">📤 파일 업로드 (최대 <span class="lim-file">20MB</span>)</div>
       <div id="drop-zone" tabindex="0" role="button" aria-label="파일 올리기">
         <div class="dz-icon">☁️</div>
         <div class="dz-hint"><strong>클릭하거나 파일을 드래그</strong>하여 업로드</div>
+        <div class="dz-sub">텍스트 파일은 <span class="lim-live">500KB</span> 이하면 올린 뒤 실시간 편집할 수 있습니다</div>
       </div>
       <input type="file" id="file-input" multiple hidden />
 
@@ -1011,7 +1013,8 @@ const LOG_DOC_BYTES     = 180000;             // 문서 하나에 모을 최대 
 const MSG_RENDER_LIMIT  = 300;                // 방에서 보여 줄 최근 메시지 수
 const LIST_LIMIT        = 100;                // 게시글·파일 목록에 보여 줄 수
 const CHECK_WORD        = 'board-room-v1';    // 비밀번호 확인용 문구 (암호화해서 저장)
-const LIVE_MAX_BYTES    = 200 * 1024;         // 실시간 편집은 이 크기 이하 텍스트만 (저장할 때마다 내용 전체가 쓰기 1회)
+const LIVE_MAX_BYTES    = 500 * 1024;         // 실시간 편집은 이 크기 이하 텍스트만 (저장할 때마다 내용 전체가 쓰기 1회)
+const LIVE_BIG_BYTES    = 200 * 1024;         // 이보다 크면 저장 간격을 5초 이상으로 (올리고 받는 양이 커서)
 const LIVE_IDLE_MS      = 700;                // 입력을 멈추고 이만큼 지나면 저장
 const LIVE_FRESH_MS     = 90 * 1000;          // 보는 창: 마지막 저장이 이보다 최근이면 '수정 중'
 const LIVE_BEAT_MS      = 2 * 60 * 1000;      // 목록용 '수정 중' 표시를 새로 적는 간격
@@ -1764,6 +1767,13 @@ async function renderRooms() {
 // ── 비밀번호 키 보관 (이 브라우저에 12시간) ──
 const keyStoreName = () => 'board.roomKeys.' + safeSeg(me.id);
 const keyBox = () => (isTempPC() ? sess : local);
+
+// 화면에 적힌 크기 안내를 코드 값과 맞춤 (숫자를 바꾸면 안내도 같이 바뀜)
+const fmtLimit = bytes => bytes >= 1048576 ? `${+(bytes / 1048576).toFixed(1)}MB` : `${Math.round(bytes / 1024)}KB`;
+function paintLimits() {
+  document.querySelectorAll('.lim-file').forEach(el => { el.textContent = `${MAX_FILE_MB}MB`; });
+  document.querySelectorAll('.lim-live').forEach(el => { el.textContent = fmtLimit(LIVE_MAX_BYTES); });
+}
 async function rememberKey(roomId, key) {
   const raw = new Uint8Array(await crypto.subtle.exportKey('raw', key));
   const all = keyBox().get(keyStoreName(), {});
@@ -2140,7 +2150,7 @@ async function loadImagePreview(ctx, m, img) {
 
 async function loadTextPreview(ctx, m, pre) {
   if ((Number(m.file.size) || 0) > MAX_PREVIEW_BYTES) {
-    pre.textContent = '2MB 이하 파일만 화면에 펼칠 수 있습니다. 내려받아 확인해 주세요.';
+    pre.textContent = `${fmtLimit(MAX_PREVIEW_BYTES)} 이하 파일만 화면에 펼칠 수 있습니다. 내려받아 확인해 주세요.`;
     return;
   }
   const d = roomLive(ctx, m);
@@ -2163,7 +2173,7 @@ async function openTextFull(ctx, m) {
   $('tv-body').textContent = '불러오는 중…';
   openModal('modal-text');
   if ((Number(m.file.size) || 0) > MAX_PREVIEW_BYTES) {
-    $('tv-body').textContent = '2MB 이하 파일만 화면에 펼칠 수 있습니다. 내려받아 확인해 주세요.';
+    $('tv-body').textContent = `${fmtLimit(MAX_PREVIEW_BYTES)} 이하 파일만 화면에 펼칠 수 있습니다. 내려받아 확인해 주세요.`;
     return;
   }
   try {
@@ -2607,9 +2617,10 @@ function recentLiveWrites() {
   const now = Date.now();
   return local.get(LIVE_WRITES_KEY, []).filter(t => typeof t === 'number' && now - t < 3600e3);
 }
-function liveGap() {
+function liveGap(bytes = 0) {
   const n = recentLiveWrites().length;
-  return n < 80 ? 3000 : n < 160 ? 6000 : 20000;    // 1시간 내내 입력해도 약 300회
+  const byCount = n < 80 ? 3000 : n < 160 ? 6000 : 20000;   // 1시간 내내 입력해도 약 300회
+  return Math.max(byCount, bytes > LIVE_BIG_BYTES ? 5000 : 0);
 }
 function noteLiveWrite() {
   const w = recentLiveWrites();
@@ -2784,7 +2795,8 @@ function onLiveInput() {
 }
 function scheduleLive(s, wait) {
   if (s.timer || s.saving || s.closed) return;
-  const w = wait != null ? wait : Math.max(LIVE_IDLE_MS, s.lastStart + liveGap() - Date.now());
+  s.bytes = te.encode(s.text).length;
+  const w = wait != null ? wait : Math.max(LIVE_IDLE_MS, s.lastStart + liveGap(s.bytes) - Date.now());
   s.timer = setTimeout(() => { s.timer = null; flushLive(s); }, w);
 }
 function saveLiveNow() {
@@ -2803,7 +2815,7 @@ async function flushLive(s) {
     needContent = false;
     if (!final) { paintLiveState(s); return; }         // 내용을 줄이면 다음 입력 때 다시 저장
     s.dirty = false;
-    toast(`${Math.round(LIVE_MAX_BYTES / 1024)}KB 를 넘어 마지막으로 고친 내용은 저장되지 않았습니다.`, 'error');
+    toast(`${fmtLimit(LIVE_MAX_BYTES)} 를 넘어 마지막으로 고친 내용은 저장되지 않았습니다.`, 'error');
   } else if (needContent) s.tooBig = false;
   const needMeta = final ? s.metaOn : false;
   if (!needContent && !needMeta) { paintLiveState(s); return; }
@@ -2908,31 +2920,45 @@ async function watchLive(s) {
 }
 
 // 보는 쪽 화면: 줄 번호 + 바뀐 줄 표시 + 올린 사람의 커서 줄
+// 바뀐 줄만 바꿔 끼워서, 파일이 커도 고칠 때마다 전체를 다시 그리지 않음
+const lineHtml = (t, cls) => `<div class="${cls}">${esc(t)}</div>`;
 function paintLiveView(s, text, caret, fresh) {
   const box = $('lv-view');
   const first = s.lines === null;
   if (!first && text === s.shown && caret === s.caretAt && fresh === s.wasFresh) return;
-  const lines = text.split('\n');
-  const old = s.lines;
-  let from = -1, to = -1, del = -1;
-  if (old && text !== s.shown) {                       // 앞뒤로 같은 줄을 걷어내면 가운데가 바뀐 부분
+  const lines = text === s.shown ? s.lines : text.split('\n');
+  const top = box.scrollTop, left = box.scrollLeft;
+  let from = -1;
+  if (first) {
+    box.innerHTML = lines.map(t => lineHtml(t, 'ln')).join('');
+  } else if (text !== s.shown) {                       // 앞뒤로 같은 줄을 걷어내면 가운데가 바뀐 부분
+    const old = s.lines;
     const max = Math.min(old.length, lines.length);
     let p = 0; while (p < max && old[p] === lines[p]) p++;
     let q = 0; while (q < max - p && old[old.length - 1 - q] === lines[lines.length - 1 - q]) q++;
-    from = p; to = lines.length - q;
-    if (from >= to) del = Math.min(from, lines.length - 1);   // 지우기만 한 경우
+    from = p;
+    const oldTo = old.length - q, to = lines.length - q;
+    if (s.delEl) { s.delEl.classList.remove('del'); s.delEl = null; }
+    if ((oldTo - p) + (to - p) > 3000 || box.children.length !== old.length) {
+      // 많이 바뀌었으면 통째로
+      box.innerHTML = lines.map((t, i) => lineHtml(t, i >= p && i < to ? 'ln chg' : 'ln')).join('');
+    } else {
+      for (let i = oldTo - 1; i >= p; i--) box.children[i].remove();
+      if (to > p) {
+        const tpl = document.createElement('template');
+        tpl.innerHTML = lines.slice(p, to).map(t => lineHtml(t, 'ln chg')).join('');
+        box.insertBefore(tpl.content, box.children[p] || null);
+      }
+    }
+    if (to <= p && lines.length) {                     // 지우기만 한 경우: 그 자리에 선 표시
+      const el = box.children[Math.min(p, lines.length - 1)];
+      if (el) { el.classList.add('del'); s.delEl = el; }
+    }
   }
+  // 커서 줄
+  if (s.caretEl) { s.caretEl.classList.remove('caret'); s.caretEl = null; }
   const cl = caret >= 0 ? lineOf(text, Math.min(caret, text.length)) : -1;
-  const html = new Array(lines.length);
-  for (let i = 0; i < lines.length; i++) {
-    let c = 'ln';
-    if (i >= from && i < to) c += ' chg';
-    if (i === del) c += ' del';
-    if (i === cl && fresh) c += ' caret';
-    html[i] = `<div class="${c}">${esc(lines[i])}</div>`;
-  }
-  const top = box.scrollTop, left = box.scrollLeft;
-  box.innerHTML = html.join('');
+  if (fresh && cl >= 0 && box.children[cl]) { box.children[cl].classList.add('caret'); s.caretEl = box.children[cl]; }
   s.lines = lines; s.shown = text; s.caretAt = caret; s.wasFresh = fresh; s.caretLine = fresh ? cl : -1;
 
   const target = s.caretLine >= 0 ? s.caretLine : from;
@@ -2955,14 +2981,14 @@ function paintLiveState(s) {
   if (s.loadFailed) { text = '내용을 불러오지 못했습니다 · 다시 시도하는 중…'; dot = 'bad'; }
   else if (s.edit) {
     if (s.text === null)  text = '불러오는 중…';
-    else if (s.tooBig)    { text = `${Math.round(LIVE_MAX_BYTES / 1024)}KB 를 넘어 실시간 저장을 멈췄습니다 · 내용을 줄이면 다시 저장합니다`; dot = 'bad'; }
+    else if (s.tooBig)    { text = `${fmtLimit(LIVE_MAX_BYTES)} 를 넘어 실시간 저장을 멈췄습니다 · 내용을 줄이면 다시 저장합니다`; dot = 'bad'; }
     else if (s.err)       { text = '저장하지 못했습니다 · 잠시 후 다시 시도합니다'; dot = 'bad'; }
     else if (s.saving)    { text = '저장 중…'; dot = 'wait'; }
     else if (s.dirty)     { text = '입력 중 · 곧 저장됩니다'; dot = 'wait'; }
     else if (s.savedAt)   {
-      const gap = liveGap();
+      const gap = liveGap(s.bytes || 0), big = (s.bytes || 0) > LIVE_BIG_BYTES;
       text = `저장됨 · ${fmtAgo(s.savedAt)} · 참여자 화면에 몇 초 안에 나타납니다`
-           + (gap > 3000 ? ` · GitHub 사용량 보호로 ${gap / 1000}초마다 저장` : '');
+           + (gap <= 3000 ? '' : big && gap === 5000 ? ' · 큰 파일이라 5초마다 저장' : ` · GitHub 사용량 보호로 ${gap / 1000}초마다 저장`);
       dot = 'ok';
     }
     else if (s.content)   { text = `마지막 수정 ${fmtAgo(s.content.at)} · 고치면 자동으로 저장됩니다`; dot = 'ok'; }
@@ -3333,6 +3359,7 @@ function wireAccount() {
   });
 }
 
+paintLimits();
 wire();
 wireAccount();
 wireLive();

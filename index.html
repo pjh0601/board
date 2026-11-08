@@ -595,6 +595,76 @@
     .lv-view .ln.caret { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent-ink); }
     #modal-live.wrap .lv-edit { white-space: pre-wrap; overflow-wrap: anywhere; }
     #modal-live.wrap .lv-view .ln { white-space: pre-wrap; overflow-wrap: anywhere; width: auto; }
+    /* 편집 창 오른쪽: 방 대화 */
+    .modal.live.with-chat { max-width: 1240px; }
+    .lv-body { position: relative; }
+    .lv-chat-btn {
+      display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 99px;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text);
+      font: inherit; font-size: 12px; cursor: pointer;
+    }
+    .lv-chat-btn.on { border-color: var(--accent-ink); color: var(--accent-ink); }
+    .lv-unread {
+      min-width: 17px; height: 17px; padding: 0 5px; border-radius: 99px; background: var(--danger); color: #fff;
+      font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;
+      animation: lvpulse 1.4s ease-in-out infinite;
+    }
+    .lc-panel {
+      width: 300px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0;
+      border-left: 1px solid var(--border); background: var(--surface);
+    }
+    .lc-title {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--muted);
+    }
+    .lc-title button { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 0 2px; }
+    .lc-list {
+      flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .lc-msg {
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 7px 10px; font-size: 13px; flex-shrink: 0;
+    }
+    .lc-msg.mine { background: var(--mine-bg); border-color: var(--mine-border); }
+    .lc-msg.new { animation: lcnew 3.2s ease-out; }
+    .lc-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+    .lc-who { font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lc-time { flex-shrink: 0; }
+    .lc-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+    .lc-file { font-size: 12px; overflow-wrap: anywhere; line-height: 1.5; }
+    .lc-here {
+      font-size: 10px; background: var(--accent-soft); color: var(--accent-ink);
+      padding: 0 6px; border-radius: 99px; margin-left: 4px; white-space: nowrap;
+    }
+    .lc-sys { font-size: 11px; color: var(--muted); text-align: center; flex-shrink: 0; }
+    .lc-empty { margin: auto; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.7; }
+    .lc-more {
+      position: sticky; bottom: 0; align-self: center; flex-shrink: 0;
+      border: none; border-radius: 99px; padding: 4px 12px; font: inherit; font-size: 12px; cursor: pointer;
+      background: var(--accent-ink); color: var(--surface); box-shadow: var(--shadow);
+    }
+    .lc-send { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--border); align-items: flex-end; }
+    .lc-send textarea {
+      flex: 1; resize: none; min-height: 36px; max-height: 120px; padding: 8px 10px;
+      border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text);
+      font-family: inherit; font-size: 13px; line-height: 1.4;
+    }
+    .lc-send textarea:focus { outline: none; border-color: var(--accent-ink); }
+    .lc-send .btn { padding: 8px 12px; font-size: 12px; }
+    .lc-peek {
+      position: absolute; top: 10px; right: 14px; z-index: 4; max-width: min(320px, 80%);
+      background: var(--surface); color: var(--text); border: 1px solid var(--accent-ink); border-radius: 12px;
+      box-shadow: var(--shadow); padding: 8px 12px; font-size: 13px; line-height: 1.5; cursor: pointer;
+      overflow-wrap: anywhere; animation: lcpeek .25s ease-out;
+    }
+    .lc-peek b { display: block; font-size: 11px; color: var(--accent-ink); margin-bottom: 2px; }
+    @keyframes lcnew  { from { box-shadow: 0 0 0 2px var(--accent-ink); } to { box-shadow: 0 0 0 0 transparent; } }
+    @keyframes lcpeek { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+    @media (max-width: 819px) {       /* 좁은 화면: 대화창을 편집 화면 위에 겹쳐서 */
+      .lc-panel { position: absolute; right: 0; top: 0; bottom: 0; width: min(320px, 88%); z-index: 3;
+                  box-shadow: -8px 0 24px rgba(0,0,0,.18); }
+    }
     @keyframes lvflash { from { background: rgba(92,184,92,.34); } to { background: transparent; } }
     @keyframes lvpulse { 50% { opacity: .3; } }
     @media (max-width: 480px) {
@@ -868,11 +938,22 @@
       <span class="lv-opts">
         <label class="lv-opt" id="lv-follow-wrap"><input type="checkbox" id="lv-follow" checked /> 고치는 곳 따라가기</label>
         <label class="lv-opt"><input type="checkbox" id="lv-wrap" /> 줄 바꿈</label>
+        <button class="lv-chat-btn" id="lv-chat-btn" type="button" aria-controls="lc-panel" aria-expanded="false" hidden>
+          💬 대화 <span class="lv-unread" id="lv-unread" hidden>0</span></button>
       </span>
     </div>
     <div class="modal-body lv-body">
       <textarea id="lv-edit" class="lv-edit" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="파일 내용"></textarea>
       <div id="lv-view" class="lv-view" tabindex="0" aria-label="파일 내용"></div>
+      <div class="lc-peek" id="lc-peek" role="status" hidden></div>
+      <aside class="lc-panel" id="lc-panel" aria-label="방 대화" hidden>
+        <div class="lc-title"><span>💬 방 대화</span><button type="button" id="lc-hide" title="대화 숨기기" aria-label="대화 숨기기">✕</button></div>
+        <div class="lc-list" id="lc-list"></div>
+        <div class="lc-send">
+          <textarea id="lc-input" rows="1" maxlength="4000" placeholder="메시지 (Enter 보내기)" aria-label="방에 메시지 보내기"></textarea>
+          <button class="btn btn-primary" id="lc-send" type="button">보내기</button>
+        </div>
+      </aside>
     </div>
     <div class="modal-foot">
       <button class="btn btn-ghost btn-sm" id="lv-revert" hidden>원본으로 되돌리기</button>
@@ -1986,8 +2067,8 @@ async function renderRoomItems(ctx) {
       ids: Array.isArray(b.ids) ? b.ids.filter(x => typeof x === 'string') : [],
     });
   }
-  const live = new Set(items.map(i => i.id));
-  for (const id of [...ctx.dec.keys()]) if (!live.has(id)) ctx.dec.delete(id);
+  const present = new Set(items.map(i => i.id));
+  for (const id of [...ctx.dec.keys()]) if (!present.has(id)) ctx.dec.delete(id);
 
   const departed = [...ctx.dec.values()].filter(m => m.k === 'system' && m.ev === 'left');
   const eph = ctx.ephemeral.filter(e => !(e.pv === 'left'
@@ -1997,8 +2078,10 @@ async function renderRoomItems(ctx) {
   const shown = all.slice(-MSG_RENDER_LIMIT);
   await profilesFor(shown.flatMap(m => [m.uid, ...(m.ids || [])]));
   if (ctx !== current) return;
+  ctx.all = all;
   paintChat(ctx, shown);
   updateSyncState();
+  if (live && live.t.ctx === ctx) paintLiveChat(live, all);   // 실시간 편집 창 오른쪽 대화
 }
 
 function paintChat(ctx, shown) {
@@ -2210,6 +2293,10 @@ async function saveRoomFile(ctx, m, asTxt, btn) {
 }
 
 // ── 보내기 ──
+async function sendRoomText(ctx, text) {
+  const e = await encryptJSON(ctx.key, { k: 'text', text: text.slice(0, 4000) });
+  await ctx.log.append({ id: newId(), t: Date.now(), e });
+}
 async function sendChat() {
   const input = $('chat-input');
   const text  = input.value.trim();
@@ -2219,8 +2306,7 @@ async function sendChat() {
   input.value = '';
   autoGrow(input);
   try {
-    const e = await encryptJSON(ctx.key, { k: 'text', text: text.slice(0, 4000) });
-    await ctx.log.append({ id: newId(), t: Date.now(), e });
+    await sendRoomText(ctx, text);
   } catch (err) {
     if (!input.value) { input.value = text; autoGrow(input); }
     handleWriteError(err, '메시지를 보내지 못했습니다.');
@@ -2711,9 +2797,12 @@ function openLive(t) {
   view.innerHTML = SPINNER;
   $('lv-revert').hidden = true;
   $('lv-follow-wrap').hidden = edit;
+  setupLiveChat(s);
   paintLiveState(s);
   openModal('modal-live');
-  if (!edit) livePoll(true);
+  // 보는 창: '수정 시작' 을 빨리 알아채려고 / 방 파일 편집 창: 오른쪽 대화가 빨리 오도록 (바뀐 게 없으면 무료)
+  s.fast = !edit || !!t.ctx;
+  if (s.fast) livePoll(true);
 
   s.tick = setInterval(() => {
     // 올린 사람이 손을 뗀 지 오래되면 커서 줄 표시를 지움
@@ -2736,9 +2825,11 @@ function closeLive() {
   s.closed = true;
   if (s.timer) { clearTimeout(s.timer); s.timer = null; }
   clearInterval(s.tick);
+  clearTimeout(s.peekTimer);
+  $('lc-peek').hidden = true;
   if (s.unsubMeta) { try { s.unsubMeta(); } catch {} s.unsubMeta = null; }
   if (s.wake) s.wake();
-  if (!s.edit) livePoll(false);
+  if (s.fast) livePoll(false);
   $('modal-live').classList.remove('open');
   if (s.edit && (s.dirty || s.metaOn)) flushLive(s);   // 남은 내용 저장 + '수정 끝' 표시
 }
@@ -3006,6 +3097,147 @@ function paintLiveState(s) {
   $('lv-dot').className = 'lv-dot' + (dot ? ' ' + dot : '');
 }
 
+// ── 편집 창 오른쪽: 방 대화 ──
+// 방에 올린 파일을 편집/보는 동안 그 방의 대화가 오른쪽에 나타나고, 거기서 바로 보낼 수도 있습니다.
+// (📁 파일 전송 탭의 파일은 딸린 대화가 없어서 이 칸이 없습니다)
+const LIVE_CHAT_LIMIT = 80;
+const narrowScreen = () => { try { return window.matchMedia('(max-width: 819px)').matches; } catch { return false; } };
+function fmtClock(t) {
+  const d = new Date(t), now = new Date();
+  const same = d.toDateString() === now.toDateString();
+  return same ? d.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' }) : fmtTime(t);
+}
+
+function setupLiveChat(s) {
+  const hasChat = !!s.t.ctx;
+  $('modal-live').querySelector('.modal').classList.toggle('with-chat', hasChat);
+  $('lv-chat-btn').hidden = !hasChat;
+  $('lc-panel').hidden = true;
+  $('lc-peek').hidden = true;
+  s.chatEls = new Map(); s.chatSeen = null; s.unread = 0; s.chatBelow = 0; s.chatOpen = false;
+  if (!hasChat) return;
+  const input = $('lc-input');
+  input.value = ''; autoGrow(input);
+  input.disabled = !writable;
+  input.placeholder = writable ? '메시지 (Enter 보내기)' : '보기 전용입니다';
+  $('lc-send').disabled = !writable;
+  $('lc-list').innerHTML = '';
+  paintLiveChat(s, s.t.ctx.all || []);
+  // 넓은 화면은 처음부터 펼침 (전에 숨겼으면 숨긴 채로), 좁은 화면은 접어 두고 새 메시지만 알림
+  setLiveChatOpen(s, narrowScreen() ? false : !!local.get('board.live.chatOpen', true), false);
+}
+
+function setLiveChatOpen(s, open, remember = true) {
+  if (!s || !s.t.ctx) return;
+  s.chatOpen = open;
+  $('lc-panel').hidden = !open;
+  const btn = $('lv-chat-btn');
+  btn.classList.toggle('on', open);
+  btn.setAttribute('aria-expanded', String(open));
+  if (remember && !narrowScreen()) local.set('board.live.chatOpen', open);
+  if (open) {
+    s.unread = 0; s.chatBelow = 0;
+    paintUnread(s);
+    clearTimeout(s.peekTimer); $('lc-peek').hidden = true;
+    const box = $('lc-list');
+    box.scrollTop = box.scrollHeight;
+    const more = box.querySelector('.lc-more'); if (more) more.remove();
+  }
+}
+function paintUnread(s) {
+  const u = $('lv-unread');
+  u.hidden = !s.unread;
+  u.textContent = s.unread > 99 ? '99+' : String(s.unread);
+}
+
+function liveChatEl(s, m, isNew) {
+  const el = document.createElement('div');
+  if (m.k === 'system') { el.className = 'lc-sys'; el.textContent = systemText(m); return el; }
+  el.className = 'lc-msg' + (m.uid === me.id ? ' mine' : '') + (isNew ? ' new' : '');
+  const head = `<div class="lc-head"><span class="lc-who">${esc(m.uid === me.id ? '나' : pName(m.uid))}</span>`
+             + `<span class="lc-time">${esc(fmtClock(m.t))}</span></div>`;
+  let body;
+  if ((m.k === 'file' || m.k === 'image') && m.file) {
+    const here = m.id === s.t.fid ? '<span class="lc-here">지금 이 파일</span>' : '';
+    body = `<div class="lc-file">${m.k === 'image' ? '🖼' : '📎'} ${esc(m.file.name)}${here}</div>`;
+  } else {
+    body = `<div class="lc-text">${esc(m.k === 'text' ? m.text : '열 수 없는 메시지입니다.')}</div>`;
+  }
+  el.innerHTML = head + body;
+  return el;
+}
+
+function paintLiveChat(s, all) {
+  if (!s || s.closed || !s.t.ctx) return;
+  const box = $('lc-list');
+  const list = all.filter(m => m.k !== 'presence').slice(-LIVE_CHAT_LIMIT);
+  const first = s.chatSeen === null;
+  if (first) s.chatSeen = new Set();
+  const atBottom = first || box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  const prevTop = box.scrollTop;
+  const fresh = [];
+  const keep = new Set(list.map(m => m.id));
+  for (const id of [...s.chatEls.keys()]) if (!keep.has(id)) s.chatEls.delete(id);
+  const nodes = list.map(m => {
+    let el = s.chatEls.get(m.id);
+    if (!el) {
+      const isNew = !first && !s.chatSeen.has(m.id) && m.uid !== me.id && m.k !== 'system';
+      el = liveChatEl(s, m, isNew);
+      s.chatEls.set(m.id, el);
+      if (isNew) fresh.push(m);
+    }
+    s.chatSeen.add(m.id);
+    return el;
+  });
+  if (!nodes.length) {
+    box.innerHTML = `<div class="lc-empty">아직 대화가 없습니다.${writable ? '<br>여기서 바로 보낼 수 있습니다.' : ''}</div>`;
+    return;
+  }
+  const last = list[list.length - 1];
+  const mineJustSent = !first && last.uid === me.id && s.chatLastId !== last.id;   // 내가 방금 보낸 것은 늘 보이게
+  s.chatLastId = last.id;
+  if (atBottom || mineJustSent) {
+    box.replaceChildren(...nodes);
+    box.scrollTop = box.scrollHeight;
+    s.chatBelow = 0;
+  } else {
+    s.chatBelow += fresh.length;
+    const more = document.createElement('button');
+    more.type = 'button'; more.className = 'lc-more';
+    more.textContent = `새 메시지 ${s.chatBelow}개 ↓`;
+    more.addEventListener('click', () => { box.scrollTop = box.scrollHeight; s.chatBelow = 0; more.remove(); });
+    box.replaceChildren(...nodes, ...(s.chatBelow ? [more] : []));
+    box.scrollTop = prevTop;
+  }
+  // 대화를 접어 두었으면: 버튼에 개수 + 오른쪽 위에 잠깐 미리보기 (편집 중인 커서는 그대로)
+  if (fresh.length && !s.chatOpen) {
+    s.unread += fresh.length;
+    paintUnread(s);
+    const m = fresh[fresh.length - 1];
+    const peek = $('lc-peek');
+    const what = (m.k === 'file' || m.k === 'image') && m.file ? `📎 ${m.file.name}` : (m.text || '');
+    peek.innerHTML = `<b>${esc(pName(m.uid))}${fresh.length > 1 ? ` 외 ${fresh.length - 1}개` : ''}</b>${esc(what.length > 120 ? what.slice(0, 120) + '…' : what)}`;
+    peek.hidden = false;
+    clearTimeout(s.peekTimer);
+    s.peekTimer = setTimeout(() => { peek.hidden = true; }, 6000);
+  }
+}
+
+async function sendLiveChat() {
+  const s = live;
+  if (!s || !s.t.ctx) return;
+  if (!writable) { toast(MSG.readonly, 'error'); return; }
+  const input = $('lc-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = ''; autoGrow(input);
+  try { await sendRoomText(s.t.ctx, text); }
+  catch (err) {
+    if (!input.value) { input.value = text; autoGrow(input); }
+    handleWriteError(err, '메시지를 보내지 못했습니다.');
+  }
+}
+
 function liveCurrentText() {
   const s = live;
   if (!s) return null;
@@ -3096,6 +3328,24 @@ function wireLive() {
     }
   });
   $('lv-revert').addEventListener('click', revertLive);
+  // 오른쪽 대화
+  $('lv-chat-btn').addEventListener('click', () => { if (live) setLiveChatOpen(live, !live.chatOpen); });
+  $('lc-hide').addEventListener('click', () => { if (live) setLiveChatOpen(live, false); });
+  $('lc-peek').addEventListener('click', () => { if (live) setLiveChatOpen(live, true); });
+  $('lc-send').addEventListener('click', sendLiveChat);
+  const lcInput = $('lc-input');
+  lcInput.addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229) return;          // 한글 조합 중 Enter 무시
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendLiveChat(); }
+  });
+  lcInput.addEventListener('input', () => autoGrow(lcInput));
+  $('lc-list').addEventListener('scroll', () => {
+    const box = $('lc-list');
+    if (box.scrollHeight - box.scrollTop - box.clientHeight < 30) {
+      const more = box.querySelector('.lc-more');
+      if (more) { more.remove(); if (live) live.chatBelow = 0; }
+    }
+  });
   $('lv-copy').addEventListener('click', async () => {
     const t = liveCurrentText();
     if (t == null) return;

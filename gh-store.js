@@ -2,8 +2,9 @@
    · 신원: 이 PC(브라우저)에 저장되는 닉네임. GitHub 계정과는 무관합니다.
    · 저장: 문서는 data 브랜치, 첨부는 assets 브랜치 (Pages 브랜치를 건드리지 않아 사이트가 다시 빌드되지 않음)
            실시간 편집 중인 파일 내용은 live 브랜치 — data 브랜치를 건드리지 않아 다른 화면이 목록을 다시 받지 않음
-   · 실시간: 브랜치 머리글을 ETag 로 4초마다 확인 (바뀐 게 없으면 304 라서 사용량에 안 잡힘)
-             실시간 보기 창이 열려 있는 동안은 1.5초마다
+   · 실시간: data 브랜치의 파일 목록을 ETag 로 4초마다 확인 (바뀐 게 없으면 304 라서 사용량에 안 잡힘,
+             바뀌었으면 그 응답이 곧 새 목록 → 변경 한 번에 요청 1회)
+             실시간 창이 열려 있는 동안은 1.5초마다, 탭을 안 보고 있을 때는 15초마다
    · 토큰: 저장소에 쓰기 위한 열쇠. 코드가 아니라 각자 브라우저에만 저장됩니다.
    · 로그아웃: 이 PC 에 저장된 이름·토큰을 지워, 다음 사람이 토큰 없이 들어오지 못하게 합니다.
      '공용 PC' 로 들어오면 브라우저를 닫을 때 저절로 지워집니다 (sessionStorage). */
@@ -17,6 +18,7 @@
   const DATA_BRANCH = 'data', ASSET_BRANCH = 'assets', LIVE_BRANCH = 'live';
   const POLL_MS = 4000;
   const FAST_POLL_MS = 1500;
+  const HIDDEN_POLL_MS = 15000;                    // 탭을 안 보고 있을 때 (그 사이 변경은 한 번에 모아서 받음)
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const rand = n => Array.from(crypto.getRandomValues(new Uint8Array(n || 8)), b => b.toString(16).padStart(2, '0')).join('');
   const enc = new TextEncoder();
@@ -130,6 +132,7 @@
           if (sha) body.sha = sha;
           const r = await gh('PUT', `${R()}/contents/${encPath(path)}`, { body });
           setTreeSha(branch, path, r.data.content.sha);
+          if (branch === DATA_BRANCH) noteOwnCommit(r.data.commit);
           return r.data;
         } catch (e) {
           if (e.code === 'conflict') { sha = await shaOf(path, branch); await sleep(250 + i * 400); continue; }
@@ -147,8 +150,9 @@
         const sha = treeSha(branch, path) || await shaOf(path, branch);
         if (!sha) return;
         try {
-          await gh('DELETE', `${R()}/contents/${encPath(path)}`, { body: { message: 'delete ' + path, sha, branch } });
+          const r = await gh('DELETE', `${R()}/contents/${encPath(path)}`, { body: { message: 'delete ' + path, sha, branch } });
           setTreeSha(branch, path, null);
+          if (branch === DATA_BRANCH) noteOwnCommit(r.data && r.data.commit);
           return;
         } catch (e) {
           if (e.code === 'not_found') { setTreeSha(branch, path, null); return; }   // 이미 지워짐 (목록이 잠깐 옛것이었을 때)
@@ -162,32 +166,84 @@
     });
   }
 
-  // ── 트리(파일 목록) 캐시 ──
+  // ── 파일 목록(트리) ──
   const trees = { [DATA_BRANCH]: new Map(), [ASSET_BRANCH]: new Map(), [LIVE_BRANCH]: new Map() };
-  const blobCache = new Map();            // blob sha → 내용 (sha 는 내용 해시라 영구 캐시 가능)
   const treeSha = (b, p) => (trees[b] || new Map()).get(p) || null;
-  const setTreeSha = (b, p, sha) => { const t = trees[b]; if (!t) return; if (sha) t.set(p, sha); else t.delete(p); };
-
-  async function refreshTree(branch) {
-    let head;
-    try {
-      head = await gh('GET', `${R()}/branches/${encodeURIComponent(branch)}`);
-    } catch (e) { if (e.code === 'not_found') { await ensureBranch(branch); return; } throw e; }
-    const sha = head.data.commit.sha;
-    const t = await gh('GET', `${R()}/git/trees/${sha}?recursive=1`);
+  // 방금 내가 쓴 것 [브랜치, 경로, 새 sha, 이전 sha, 시각] — 조금 늦은 목록이 와도 내 것이 사라지지 않게
+  let recentWrites = [];
+  const setTreeSha = (b, p, sha) => {
+    const t = trees[b]; if (!t) return;
+    const prev = t.get(p) || null;
+    if (sha) t.set(p, sha); else t.delete(p);
+    if (b === DATA_BRANCH) recentWrites.push([p, sha || null, prev, Date.now()]);
+  };
+  function applyTree(list) {                     // data 브랜치의 새 목록을 받아 바꿔 끼움
     const map = new Map();
-    for (const n of t.data.tree || []) if (n.type === 'blob') map.set(n.path, n.sha);
-    trees[branch] = map;
-    if (t.data.truncated) console.warn('tree truncated');
+    for (const n of list || []) if (n.type === 'blob') map.set(n.path, n.sha);
+    const now = Date.now();
+    recentWrites = recentWrites.filter(w => now - w[3] < 10000);
+    for (const [p, sha, prev] of recentWrites) {
+      // 받은 목록이 아직 '내가 쓰기 전' 모습이면 내 것이 더 새것. 다른 값이면 누가 그 뒤에 또 쓴 것이라 그대로 둠
+      if ((map.get(p) || null) === prev) { if (sha) map.set(p, sha); else map.delete(p); }
+    }
+    trees[DATA_BRANCH] = map;
   }
-  async function readBlob(sha, as) {
-    const key = sha + ':' + as;
-    if (blobCache.has(key)) return blobCache.get(key);
-    const r = await gh('GET', `${R()}/git/blobs/${sha}`, { accept: 'application/vnd.github.raw', raw: as === 'bytes' ? 'bytes' : 'text' });
-    const v = as === 'bytes' ? r.bytes : r.text;
-    if (blobCache.size > 400) blobCache.clear();
-    blobCache.set(key, v);
-    return v;
+  async function loadTree(ref, etag, quiet) {    // ref = 브랜치 이름 또는 커밋 sha
+    const r = await gh('GET', `${R()}/git/trees/${encodeURIComponent(ref)}?recursive=1`, { etag, quiet, cache: 'no-store' });
+    if (r.notModified) return r;
+    applyTree(r.data.tree);
+    if (r.data.truncated) console.warn('tree truncated');
+    return r;
+  }
+
+  // ── 내용 캐시 ──
+  // 크기 한도가 있고, 넘치면 오래 안 쓴 것부터 버립니다 (한꺼번에 비우면 전부 다시 받느라 요청이 몰림)
+  function lru(maxBytes) {
+    const m = new Map();
+    let total = 0;
+    return {
+      get(k) { const e = m.get(k); if (!e) return undefined; m.delete(k); m.set(k, e); return e.v; },
+      set(k, v, size) {
+        const old = m.get(k);
+        if (old) { total -= old.size; m.delete(k); }
+        m.set(k, { v, size }); total += size;
+        while (total > maxBytes && m.size > 1) { const [ok, oe] = m.entries().next().value; m.delete(ok); total -= oe.size; }
+      },
+    };
+  }
+  const BAD = Symbol('bad json');
+  const docCache  = lru(24 * 1048576);    // blob sha → 풀어 놓은 JSON (sha 는 내용 해시라 내용이 바뀌지 않음)
+  const partCache = lru(64 * 1048576);    // 첨부 id → 바이트 (id 마다 내용이 정해져 있음)
+  const inflight  = new Map();            // 같은 것을 동시에 두 번 받지 않게
+  function once(key, fn) {
+    let pr = inflight.get(key);
+    if (!pr) { pr = fn().finally(() => inflight.delete(key)); inflight.set(key, pr); }
+    return pr;
+  }
+  async function pool(items, n, fn) {     // 한 번에 n 개씩 나란히
+    let i = 0;
+    await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+      while (i < items.length) { const k = i++; await fn(items[k], k); }
+    }));
+  }
+  // 문서 하나의 내용. 받다가 끊기면 예외(→ 호출한 쪽이 다시 시도), 내용이 깨졌으면 null
+  async function readJson(sha) {
+    const hit = docCache.get(sha);
+    if (hit !== undefined) return hit === BAD ? null : hit;
+    return once('d:' + sha, async () => {
+      const r = await gh('GET', `${R()}/git/blobs/${sha}`, { accept: 'application/vnd.github.raw', raw: 'text' });
+      let v;
+      try { v = JSON.parse(r.text); } catch { v = BAD; }
+      docCache.set(sha, v, r.text.length * 2 + 64);
+      return v === BAD ? null : v;
+    });
+  }
+  // 문서 쓰기: 방금 올린 내용을 캐시에 넣어 두어, 내가 쓴 것을 다시 내려받지 않음
+  async function putDoc(path, data, message) {
+    const text = JSON.stringify(data);
+    const r = await putFile(docPath(path), b64txt(text), DATA_BRANCH, message);
+    if (r && r.content && r.content.sha) docCache.set(r.content.sha, JSON.parse(text), text.length * 2 + 64);
+    return r;
   }
   async function ensureBranch(branch) {
     const repo = await gh('GET', R());
@@ -196,6 +252,7 @@
       await gh('POST', `${R()}/git/refs`, { body: { ref: 'refs/heads/' + branch, sha: base.data.object.sha } });
     } catch (e) { if (e.code !== 'conflict') throw e; }
     trees[branch] = new Map();
+    if (branch === DATA_BRANCH) { treeEtag = rootSha = headEtag = headSha = null; }
   }
 
   // ── 문서 저장소 (앱이 쓰는 형태) ──
@@ -212,37 +269,46 @@
     metadata: { fromCache: false, hasPendingWrites: false },
   });
 
-  async function readDoc(path) {
+  async function readDoc(path) {                 // 없으면 null. 받다가 끊기면 예외 (없는 것으로 착각해 덮어쓰지 않게)
     const sha = treeSha(DATA_BRANCH, docPath(path));
-    if (!sha) return null;
-    try { return JSON.parse(await readBlob(sha, 'text')); } catch { return null; }
+    return sha ? readJson(sha) : null;
   }
-  async function listColl(coll) {
-    const prefix = DOC_DIR + coll + '/';
-    const out = [];
+  function children(coll) {                      // 이 묶음 바로 아래 문서들 [id, sha] — 내용은 읽지 않음
+    const prefix = DOC_DIR + coll + '/', out = [];
     for (const [p, sha] of trees[DATA_BRANCH]) {
       if (!p.startsWith(prefix) || !p.endsWith('.json')) continue;
       const rest = p.slice(prefix.length, -5);
-      if (rest.includes('/')) continue;
-      let data = null;
-      try { data = JSON.parse(await readBlob(sha, 'text')); } catch { continue; }
-      out.push({ id: rest, data });
+      if (!rest.includes('/')) out.push([rest, sha]);
     }
-    out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return out.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  }
+  async function listColl(coll, kids) {
+    kids = kids || children(coll);
+    const got = new Array(kids.length);
+    let partial = false;
+    await pool(kids, 6, async ([id, sha], k) => {
+      try { const data = await readJson(sha); if (data && typeof data === 'object') got[k] = { id, sha, data }; }
+      catch { partial = true; }                  // 못 받은 문서는 빼고, 조금 뒤 다시 시도
+    });
+    const out = got.filter(Boolean);
+    out.partial = partial;
     return out;
   }
 
   const listeners = new Set();
-  async function runQuery(coll, where) {
-    let rows = await listColl(coll);
-    if (coll === 'rooms') rows = rows.filter(r => (r.data.members || []).includes(ident.uid));
-    const docs = rows.filter(r => (where || []).every(([f, op, v]) => {
-      const cur = r.data ? r.data[f] : undefined;
+  async function runQuery(coll, where, kids) {
+    const all = await listColl(coll, kids);
+    let rows = all;
+    if (coll === 'rooms') rows = rows.filter(r => Array.isArray(r.data.members) && r.data.members.includes(ident.uid));
+    rows = rows.filter(r => (where || []).every(([f, op, v]) => {
+      const cur = r.data[f];
       if (op === '==') return cur === v;
       if (op === 'array-contains') return Array.isArray(cur) && cur.includes(v);
       return true;
-    })).map(r => snapDoc(r.id, r.data));
-    return { docs, size: docs.length, empty: !docs.length, docChanges: () => [], metadata: { fromCache: false, hasPendingWrites: false } };
+    }));
+    const docs = rows.map(r => snapDoc(r.id, r.data));
+    return { docs, size: docs.length, empty: !docs.length, docChanges: () => [], metadata: { fromCache: false, hasPendingWrites: false },
+             _sig: rows.map(r => r.id + ':' + r.sha).join('|'), _partial: all.partial };
   }
   async function refresh(l) {
     if (l.busy) { l.again = true; return; }
@@ -259,11 +325,16 @@
           }
           continue;
         }
+        // 묶음 구독: 그 아래 파일들의 sha 가 그대로면 내용을 읽지도, 비교하지도 않고 끝
+        const kids = children(l.coll);
+        const collSig = kids.map(k => k[0] + ':' + k[1]).join('|');
+        if (collSig === l.collSig) continue;
         let snap;
-        try { snap = await runQuery(l.coll, l.where); }
+        try { snap = await runQuery(l.coll, l.where, kids); }
         catch (e) { if (l.sig === null && l.err) l.err(e); break; }
-        const sig = JSON.stringify(snap.docs.map(d => [d.id, d.data()]));
-        if (sig !== l.sig) { l.sig = sig; if (listeners.has(l)) l.next(snap); }
+        if (snap._partial) setTimeout(() => { if (listeners.has(l)) refresh(l); }, 3000);
+        else l.collSig = collSig;
+        if (snap._sig !== l.sig) { l.sig = snap._sig; if (listeners.has(l)) l.next(snap); }
       } while (l.again);
     } finally { l.busy = false; }
   }
@@ -274,11 +345,7 @@
     const sha = treeSha(DATA_BRANCH, docPath(l.doc));
     const sig = sha || '-';
     if (sig === l.sig) return;
-    let data = null;
-    if (sha) {
-      const text = await readBlob(sha, 'text');        // 네트워크 오류는 위로 던져 다음에 다시 시도
-      try { data = JSON.parse(text); } catch { data = null; }
-    }
+    const data = sha ? await readJson(sha) : null;      // 네트워크 오류는 위로 던져 다음에 다시 시도
     l.sig = sig;
     if (listeners.has(l)) l.next(snapDoc(l.id, data));
   }
@@ -290,7 +357,7 @@
       where: (f, op, v) => collRef(path, [...where, [f, op, v]]),
       get: () => runQuery(path, where),
       onSnapshot(next, err) {
-        const l = { coll: path, where, next, err, sig: null, busy: false, again: false };
+        const l = { coll: path, where, next, err, sig: null, collSig: null, busy: false, again: false };
         listeners.add(l);
         refresh(l);
         return () => listeners.delete(l);
@@ -302,7 +369,7 @@
     assertPath(path, true);
     const segs = path.split('/'), id = segs[segs.length - 1];
     const write = async data => {
-      await putFile(docPath(path), b64txt(JSON.stringify(data)), DATA_BRANCH);
+      await putDoc(path, data);
       refreshAll();
     };
     return {
@@ -338,12 +405,12 @@
   // 파일 목록을 다시 받아(요청 2~3회) 공유 토큰의 사용량이 금방 바닥나기 때문입니다.
   // 읽기는 파일 하나를 ETag 로 확인 → 그대로면 304 라서 사용량에 잡히지 않습니다.
   const liveCache = new Map();                   // 경로 → { etag, data }
-  let liveBranchOk = false;
-  async function liveBranch() {
-    if (liveBranchOk) return;
-    try { await gh('GET', `${R()}/branches/${LIVE_BRANCH}`, { quiet: true }); }
-    catch (e) { if (e.code !== 'not_found') throw e; await ensureBranch(LIVE_BRANCH); }
-    liveBranchOk = true;
+  const branchOk = {};                           // 브랜치 → 있는 것을 확인함 (처음 올릴 때 한 번만 물어봄)
+  async function branchReady(branch) {
+    if (branchOk[branch]) return;
+    try { await gh('GET', `${R()}/branches/${branch}`, { quiet: true }); }
+    catch (e) { if (e.code !== 'not_found') throw e; await ensureBranch(branch); }
+    branchOk[branch] = true;
   }
   const liveCap = Object.freeze({
     async read(path) {                           // → { data, changed }   (없으면 data: null)
@@ -367,7 +434,7 @@
     },
     async write(path, obj) {
       assertPath(path, true);
-      await liveBranch();
+      await branchReady(LIVE_BRANCH);
       await putFile(docPath(path), b64txt(JSON.stringify(obj)), LIVE_BRANCH, 'live ' + path);
     },
     async delete(path) {
@@ -378,31 +445,55 @@
     },
   });
 
-  // ── 변경 확인 (ETag 롱폴링 대신 가벼운 주기 확인) ──
-  let polling = false, headEtag = null, headSha = null, assetEtag = null;
-  let fastRefs = 0, wakePoll = null;
-  function napPoll(ms) {                         // 기다리다가 빠른 확인으로 바뀌면 바로 깨어남
+  // ── 변경 확인 ──
+  // 'tree'  : data 브랜치의 파일 목록을 ETag 로 물어봄. 그대로면 304(무료), 바뀌었으면 그 응답이 새 목록 → 변경당 요청 1회
+  // 'branch': 예전 방식. 브랜치 머리글(1회) → 목록(1회). ETag 가 통하지 않는 환경이면 저절로 이쪽으로 바뀜
+  let pollMode = 'tree';
+  let treeEtag = null, rootSha = null, sameRoot = 0;
+  let headEtag = null, headSha = null;
+  let polling = false, fastRefs = 0, wakePoll = null;
+
+  // 내가 올린 커밋이 '알고 있던 머리' 바로 다음이면 목록을 다시 받을 필요가 없음 ('branch' 방식에서만 쓰임)
+  function noteOwnCommit(c) {
+    if (pollMode === 'branch' && headSha && c && c.sha && c.parents && c.parents.length === 1 && c.parents[0].sha === headSha) headSha = c.sha;
+  }
+  async function pollOnce(quiet = true) {        // → 바뀌었으면 true
+    if (pollMode === 'tree') {
+      const sent = treeEtag;
+      const r = await loadTree(DATA_BRANCH, sent, quiet);
+      if (r.notModified) { sameRoot = 0; return false; }
+      treeEtag = r.etag || null;
+      const same = r.data.sha === rootSha;
+      rootSha = r.data.sha;
+      // 바뀐 게 없는데 304 대신 목록이 통째로 오기를 되풀이하거나 ETag 가 아예 없으면, 4초마다 요청을 쓰게 되므로 예전 방식으로
+      if (!treeEtag || (same && sent && ++sameRoot >= 3)) { pollMode = 'branch'; headEtag = headSha = null; }
+      if (!same) sameRoot = 0;
+      return !same;
+    }
+    const r = await gh('GET', `${R()}/branches/${DATA_BRANCH}`, { etag: headEtag, quiet, cache: 'no-store' });
+    if (r.notModified) return false;
+    headEtag = r.etag;
+    const sha = r.data.commit.sha;
+    if (sha === headSha) return false;
+    await loadTree(sha, null, quiet);
+    headSha = sha;
+    return true;
+  }
+
+  function napPoll(ms) {                         // 기다리다가 빠른 확인으로 바뀌거나 탭으로 돌아오면 바로 깨어남
     return new Promise(r => {
       const t = setTimeout(() => { wakePoll = null; r(); }, ms);
       wakePoll = () => { clearTimeout(t); wakePoll = null; r(); };
     });
   }
-  const pollDelay = () => (fastRefs > 0 && !document.hidden ? FAST_POLL_MS : POLL_MS);
-  async function pollOnce() {
-    const r = await gh('GET', `${R()}/branches/${DATA_BRANCH}`, { etag: headEtag, quiet: true });
-    if (r.notModified) return false;
-    headEtag = r.etag;
-    const sha = r.data.commit.sha;
-    if (sha === headSha) return false;
-    headSha = sha;
-    await refreshTree(DATA_BRANCH);
-    return true;
-  }
+  const pollDelay = () => (document.hidden ? HIDDEN_POLL_MS : fastRefs > 0 ? FAST_POLL_MS : POLL_MS);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && wakePoll) wakePoll(); });
   async function startPolling() {
     if (polling) return;
     polling = true;
-    let delay = POLL_MS;
+    let delay = pollDelay();
     for (;;) {
+      await napPoll(delay);
       if (!ident) return;                          // 로그아웃함
       try {
         if (await pollOnce()) refreshAll();
@@ -412,7 +503,6 @@
         if (onlineCb) onlineCb(false, e);
         delay = Math.min(delay * 2, 60000);
       }
-      await napPoll(delay);
     }
   }
   let onlineCb = null;
@@ -457,11 +547,13 @@
   // ── 첨부 ──
   const assetPath = id => 'assets/' + id;
   const assetsCap = Object.freeze({
+    acceptsText: true,                                  // base64 문자열을 Blob 으로 싸지 않고 바로 받을 수 있음
     upload: async blob => {
-      const text = (await blob.text()).trim();          // 이미 base64 (앱이 조각내어 보냄)
+      const text = (typeof blob === 'string' ? blob : await blob.text()).trim();   // 이미 base64 (앱이 조각내어 보냄)
       if (!text) throw { code: 'invalid_request' };
       const id = rand(16);
       try {
+        await branchReady(ASSET_BRANCH);
         await putFile(assetPath(id), text, ASSET_BRANCH, 'upload ' + id);
       } catch (e) {
         if (e.code === 'not_found') { await ensureBranch(ASSET_BRANCH); await putFile(assetPath(id), text, ASSET_BRANCH, 'upload ' + id); }
@@ -473,18 +565,32 @@
     delete: async id => { await delFile(assetPath(String(id)), ASSET_BRANCH); return { deleted: true }; },
   });
 
-  // 앱이 첨부 조각을 읽을 때 쓰는 통로 (내용은 base64 문자열)
+  // 앱이 첨부 조각을 읽을 때 쓰는 통로.
+  // 조각은 id 마다 내용이 정해져 있어 목록(트리) 없이 경로로 바로 받고, id 로 캐시합니다.
+  const ASSET_ID = /^[A-Za-z0-9_-]{8,80}$/;
+  function assetBytes(id) {
+    const hit = partCache.get(id);
+    if (hit) return Promise.resolve(hit);
+    return once('a:' + id, async () => {
+      const r = await gh('GET', `${R()}/contents/${encPath(assetPath(id))}?ref=${ASSET_BRANCH}`,
+                         { accept: 'application/vnd.github.raw+json', raw: 'bytes' });
+      partCache.set(id, r.bytes, r.bytes.length);
+      return r.bytes;
+    });
+  }
+  // 바이트 그대로 (없으면 null, 받다가 끊기면 예외). 받은 배열은 캐시와 같이 쓰므로 고치지 말 것
+  window.assetFetchBytes = async id => {
+    if (!ASSET_ID.test(String(id))) return null;
+    try { return await assetBytes(String(id)); }
+    catch (e) { if (e && e.code === 'not_found') return null; throw e; }
+  };
+  // 방금 올린 조각을 캐시에 넣어 두어, 올린 사람이 자기 파일을 다시 내려받지 않게
+  window.assetSeed = (id, bytes) => { if (ASSET_ID.test(String(id)) && bytes && bytes.length) partCache.set(String(id), bytes, bytes.length); };
+  // 예전 통로 (base64 문자열)
   window.assetFetch = async id => {
-    if (!/^[A-Za-z0-9_-]{8,80}$/.test(String(id))) return { ok: false, text: async () => '' };
     try {
-      let sha = treeSha(ASSET_BRANCH, assetPath(id));
-      if (!sha) {                                        // 방금 올라온 파일이면 목록을 새로 받아옴
-        await refreshTree(ASSET_BRANCH);
-        sha = treeSha(ASSET_BRANCH, assetPath(id));
-      }
-      if (!sha) return { ok: false, text: async () => '' };
-      const bytes = await readBlob(sha, 'bytes');
-      return { ok: true, text: async () => b64enc(bytes) };
+      const bytes = await window.assetFetchBytes(id);
+      return bytes ? { ok: true, text: async () => b64enc(bytes) } : { ok: false, text: async () => '' };
     } catch { return { ok: false, text: async () => '' }; }
   };
 
@@ -557,11 +663,11 @@
     return { uid: v.uid, name: String(v.name || '').slice(0, 20) };
   }
 
+  // 시작할 때 data 브랜치의 목록을 한 번 받음 (없으면 만듦).
+  // assets · live 브랜치는 처음 올릴 때 만들어지고, 조각은 id 로 바로 받으므로 목록이 필요 없음
   async function ensureBranches() {
-    for (const br of [DATA_BRANCH, ASSET_BRANCH]) {
-      try { await refreshTree(br); }
-      catch (e) { if (e.code === 'not_found') await ensureBranch(br); else throw e; }
-    }
+    try { await pollOnce(false); }
+    catch (e) { if (e.code === 'not_found') await ensureBranch(DATA_BRANCH); else throw e; }
   }
 
   // 토큰이 실제로 쓸 수 있는지 '진짜 쓰기'로 확인합니다.
@@ -579,7 +685,7 @@
         if (doc && doc.name) ident.name = String(doc.name).slice(0, 20);
       }
       if (!ident.name) ident.name = '이름 없음';
-      await putFile(docPath('people/' + ident.uid), b64txt(JSON.stringify(peopleDoc())), DATA_BRANCH, 'join');
+      await putDoc('people/' + ident.uid, peopleDoc(), 'join');
     } catch (e) {
       ident = prev;
       throw e;
@@ -709,9 +815,10 @@
       if (!ident || !ident.uid || !ident.token) await askJoin();
       await withToken(ensureBranches);
       // 이름을 저장소에 올려 두면 다른 사람 초대 목록에 보입니다
-      const p = await readDoc('people/' + ident.uid);
-      if (!p || p.name !== ident.name) {
-        try { await putFile(docPath('people/' + ident.uid), b64txt(JSON.stringify(peopleDoc())), DATA_BRANCH, 'join'); } catch {}
+      let p = null, known = true;
+      try { p = await readDoc('people/' + ident.uid); } catch { known = false; }     // 못 읽었으면 건드리지 않음
+      if (known && (!p || p.name !== ident.name)) {
+        try { await putDoc('people/' + ident.uid, peopleDoc(), 'join'); } catch {}
       }
       startPolling();
     })();
@@ -730,7 +837,7 @@
       ident.uid = v.uid;
       ident.name = String(v.name || ident.name).slice(0, 20);
       try {                                   // 저장소에 있는 현재 이름을 따름 (그 사이 바꿨을 수 있음)
-        await refreshTree(DATA_BRANCH);
+        await pollOnce(false);
         const doc = await readDoc('people/' + ident.uid);
         if (doc && doc.name) ident.name = String(doc.name).slice(0, 20);
       } catch {}
@@ -738,7 +845,7 @@
     },
     async rename(name) {
       ident.name = String(name).slice(0, 20); saveIdent();
-      await putFile(docPath('people/' + ident.uid), b64txt(JSON.stringify(peopleDoc())), DATA_BRANCH, 'rename');
+      await putDoc('people/' + ident.uid, peopleDoc(), 'rename');
       refreshAll();
     },
     async setToken(token) {

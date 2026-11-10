@@ -1413,8 +1413,9 @@ async function putParts(u8, onProgress) {
   try {
     const total = Math.ceil(u8.length / PART_BYTES);
     for (let i = 0; i < total; i++) {
-      const b64  = bytesToB64(u8.subarray(i * PART_BYTES, Math.min(u8.length, (i + 1) * PART_BYTES)));
-      const blob = new Blob([b64], { type: 'text/plain' });
+      const part = u8.subarray(i * PART_BYTES, Math.min(u8.length, (i + 1) * PART_BYTES));
+      const b64  = bytesToB64(part);
+      const blob = assets.acceptsText ? b64 : new Blob([b64], { type: 'text/plain' });   // 받을 수 있으면 문자열 그대로
       let res;
       try { res = await assets.upload(blob, { type: 'text/plain' }); }
       catch (e) {
@@ -1423,6 +1424,7 @@ async function putParts(u8, onProgress) {
         res = await assets.upload(blob, { type: 'text/plain' });
       }
       parts.push(res.id);
+      if (window.assetSeed) window.assetSeed(res.id, part.slice());     // 내가 올린 것은 다시 내려받지 않게
       if (onProgress) onProgress((i + 1) / total);
     }
     return parts;
@@ -1432,14 +1434,23 @@ async function putParts(u8, onProgress) {
   }
 }
 
-async function fetchParts(parts) {
-  const chunks = [];
-  for (const id of parts || []) {
-    if (!ASSET_ID_RE.test(String(id))) throw new Error('bad part');
-    const res = await window.assetFetch(id);
-    if (!res.ok) throw new Error('missing part');
-    chunks.push(b64ToBytes((await res.text()).trim()));
+async function fetchPart(id) {
+  if (typeof window.assetFetchBytes === 'function') {        // 바이트 그대로 (base64 로 바꿨다 되돌리지 않음)
+    const bytes = await window.assetFetchBytes(id);
+    if (!bytes) throw new Error('missing part');
+    return bytes;
   }
+  const res = await window.assetFetch(id);
+  if (!res.ok) throw new Error('missing part');
+  return b64ToBytes((await res.text()).trim());
+}
+async function fetchParts(parts) {
+  const ids = (parts || []).map(String);
+  for (const id of ids) if (!ASSET_ID_RE.test(id)) throw new Error('bad part');
+  const chunks = new Array(ids.length);
+  let next = 0;
+  const worker = async () => { while (next < ids.length) { const i = next++; chunks[i] = await fetchPart(ids[i]); } };
+  await Promise.all(Array.from({ length: Math.min(3, ids.length) }, worker));   // 조각 3개씩 나란히
   return concatBytes(chunks);
 }
 
@@ -2580,9 +2591,10 @@ let files = [];
 let filesSeq = 0;
 
 function subscribeFiles() {
-  fileLog.subscribe(renderFiles, () => { $('file-list').innerHTML = emptyHtml('파일 목록을 불러오지 못했습니다. 페이지를 새로 열어 주세요.'); });
+  fileLog.subscribe(renderFiles, () => { filesHtml = ''; $('file-list').innerHTML = emptyHtml('파일 목록을 불러오지 못했습니다. 페이지를 새로 열어 주세요.'); });
 }
 
+let filesHtml = '';
 async function renderFiles(items) {
   const seq = ++filesSeq;
   files = items.filter(f => typeof f.name === 'string' && Array.isArray(f.parts))
@@ -2590,8 +2602,8 @@ async function renderFiles(items) {
   await profilesFor(files.map(f => f.uid));
   if (seq !== filesSeq) return;
   const list = $('file-list');
-  if (!files.length) { list.innerHTML = emptyHtml('업로드된 파일이 없습니다.', '📂'); return; }
-  list.innerHTML = files.map(f => {
+  if (!files.length) { filesHtml = ''; list.innerHTML = emptyHtml('업로드된 파일이 없습니다.', '📂'); return; }
+  const html = files.map(f => {
     const lm = pubMetaFor(f);
     const mine = f.uid === me.id && writable;
     const liveBtn = !liveCanEdit(f.name, f.size) ? ''
@@ -2611,6 +2623,9 @@ async function renderFiles(items) {
       </div>
     </div>`;
   }).join('');
+  if (html === filesHtml) return;                    // 달라진 게 없으면 그대로 둠
+  filesHtml = html;
+  list.innerHTML = html;
 }
 
 async function uploadFiles(list) {
@@ -2831,7 +2846,18 @@ function closeLive() {
   if (s.wake) s.wake();
   if (s.fast) livePoll(false);
   $('modal-live').classList.remove('open');
-  if (s.edit && (s.dirty || s.metaOn)) flushLive(s);   // 남은 내용 저장 + '수정 끝' 표시
+  // 남은 내용 저장 + '수정 끝' 표시. 끝날 때까지 liveTail 이 기다려 줌 (로그아웃 · 페이지 닫기 경고)
+  if (s.edit && (s.dirty || s.metaOn || s.saving)) {
+    livePending++;
+    const done = settleLive(s).finally(() => { livePending--; });
+    liveTail = Promise.all([liveTail, done]).catch(() => {});
+  }
+}
+let liveTail = Promise.resolve(), livePending = 0;
+async function settleLive(s) {
+  flushLive(s);
+  const t0 = Date.now();
+  while ((s.saving || s.dirty || s.metaOn) && Date.now() - t0 < 15000) await sleep(100);
 }
 
 async function liveOriginal(s) {
@@ -3374,7 +3400,7 @@ function wireLive() {
   // 페이지를 닫거나 다른 탭으로 갈 때 아직 안 올라간 내용 처리
   window.addEventListener('beforeunload', e => {
     const s = live;
-    if (s && s.edit && (s.dirty || s.saving)) { e.preventDefault(); e.returnValue = ''; }
+    if ((s && s.edit && (s.dirty || s.saving)) || livePending > 0) { e.preventDefault(); e.returnValue = ''; }
   });
   document.addEventListener('visibilitychange', () => {
     const s = live;
@@ -3538,12 +3564,8 @@ async function doLogout() {
   btn.textContent = '마무리하는 중…';
   try {
     // 실시간 편집 중이던 내용부터 마저 저장
-    const s = live;
-    if (s) closeLive();
-    if (s && s.edit) {
-      const t0 = Date.now();
-      while ((s.saving || s.dirty || s.metaOn) && Date.now() - t0 < 10000) await sleep(100);
-    }
+    if (live) closeLive();
+    await liveTail;                              // 방금 닫은 편집 창의 마지막 저장까지
     if (current) leaveRoomQuietly();
     // 방 비밀번호 (이 브라우저에 12시간 보관하던 것) — 이 PC 에 남은 것은 누구 것이든 모두
     for (const st of [localStorage, sessionStorage]) {

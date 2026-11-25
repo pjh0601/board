@@ -423,6 +423,18 @@
               mask-image: linear-gradient(#000 80%, transparent);
     }
     #hover-pv .hp-msg { font-size: 12px; color: var(--muted); padding: 16px; text-align: center; line-height: 1.6; }
+    #hover-pv .hp-body img.doc { background: #fff; box-shadow: 0 0 0 1px var(--border); margin: 10px; max-width: calc(100% - 20px); max-height: 300px; }
+    /* PPTX 미리보기 이미지가 없을 때: 첫 슬라이드의 글자로 만든 카드 */
+    .hp-slide {
+      position: relative; width: calc(100% - 20px); margin: 10px; background: #fff; color: #1f1f1f;
+      box-shadow: 0 0 0 1px var(--border); border-radius: 4px; overflow: hidden;
+      display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 14px 16px;
+    }
+    .hp-slide .t { font-size: 15px; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+    .hp-slide .l { font-size: 10.5px; line-height: 1.45; color: #444; overflow-wrap: anywhere; }
+    .hp-slide .l::before { content: '• '; color: #999; }
+    .hp-slide img { position: absolute; right: 8px; bottom: 8px; max-width: 38%; max-height: 50%; object-fit: contain; }
+    .hp-slide .none { font-size: 12px; color: #999; text-align: center; }
     @keyframes hpin { from { opacity: 0; } to { opacity: 1; } }
 
     /* ── 공통 ── */
@@ -1223,6 +1235,10 @@
 const MAX_FILE_MB       = 20;                 // 한 파일 최대 크기 (GitHub 저장소가 커지므로 낮게)
 const MAX_PREVIEW_BYTES = 2 * 1024 * 1024;    // 2MB 까지만 화면에 펼침
 const MAX_IMAGE_PREVIEW = 15 * 1024 * 1024;   // 이보다 큰 사진은 미리보기 없이 내려받기만
+// PDF 첫 페이지 그리기: pdf.js (Mozilla). 처음 PDF 미리보기를 할 때만 CDN 에서 받아 옵니다.
+// 오래된 브라우저도 되도록 legacy 빌드를 쓰고, 버전을 고정해 두었습니다.
+const PDFJS_ROOT        = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.5.438/';   // 끝에 / 필요
+const MAX_DOC_PREVIEW   = 15 * 1024 * 1024;   // 이보다 큰 PDF · PPT 는 미리보기 없이
 const ROOM_KEY_HOURS    = 12;                 // 비밀번호를 넣은 뒤 다시 묻지 않는 시간
 const KDF_ITER          = 150000;             // PBKDF2 반복 횟수
 const PART_BYTES        = 8 * 1024 * 1024;    // 첨부 한 조각 (GitHub 파일 한도 100MB 보다 훨씬 작게)
@@ -3231,6 +3247,162 @@ async function deleteFile(id) {
   } catch (e) { handleWriteError(e, '삭제하지 못했습니다.'); }
 }
 
+// ── 문서 첫 장 미리보기 (PDF · PPTX) ──
+// PDF : pdf.js 로 첫 페이지를 그림으로
+// PPTX: 파일 안에 PowerPoint 가 넣어 둔 첫 슬라이드 그림(docProps/thumbnail)을 꺼내고,
+//       없으면 첫 슬라이드의 제목 · 글자 · 첫 사진으로 카드를 만듦. (예전 .ppt 형식은 열 수 없음)
+let pdfjsP = null;
+function loadPdfJs() {
+  if (!pdfjsP) {
+    pdfjsP = import(PDFJS_ROOT + 'legacy/build/pdf.min.mjs').then(lib => {
+      lib.GlobalWorkerOptions.workerSrc = PDFJS_ROOT + 'legacy/build/pdf.worker.min.mjs';
+      return lib;
+    }).catch(() => { pdfjsP = null; throw { code: 'pdfjs' }; });   // 다음에 다시 시도
+  }
+  return pdfjsP;
+}
+async function pdfFirstPage(bytes, cssWidth = 320) {
+  const lib = await loadPdfJs();
+  const task = lib.getDocument({
+    data: bytes.slice(),                            // pdf.js 가 넘겨받은 배열을 비우므로 복사본을
+    cMapUrl: PDFJS_ROOT + 'cmaps/', cMapPacked: true,          // 글꼴이 안 들어간 한글 PDF 용
+    standardFontDataUrl: PDFJS_ROOT + 'standard_fonts/', wasmUrl: PDFJS_ROOT + 'wasm/',
+    isEvalSupported: false, disableAutoFetch: true, disableStream: true,
+  });
+  try {
+    const doc = await task.promise;
+    const page = await doc.getPage(1);
+    const base = page.getViewport({ scale: 1 });
+    const scale = Math.min(4, (cssWidth * Math.min(2, window.devicePixelRatio || 1)) / base.width);
+    const vp = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvas, canvasContext: ctx, viewport: vp }).promise;
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    if (!blob) throw new Error('canvas');
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), pages: doc.numPages };
+  } finally { task.destroy(); }
+}
+
+// 아주 작은 ZIP 읽기 (pptx 는 zip). 압축은 브라우저 기본 기능(DecompressionStream)으로 풉니다
+function zipIndex(u8) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('not zip');
+  const n = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const map = new Map();
+  for (let k = 0; k < n && p + 46 <= u8.length; k++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true), usize = dv.getUint32(p + 24, true);
+    const nl = dv.getUint16(p + 28, true), el = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
+    const local = dv.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nl));
+    map.set(name, { method, csize, usize, local });
+    p += 46 + nl + el + cl;
+  }
+  return map;
+}
+async function zipRead(u8, idx, name) {
+  const e = idx.get(name);
+  if (!e) return null;
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  if (dv.getUint32(e.local, true) !== 0x04034b50) throw new Error('bad zip');
+  const start = e.local + 30 + dv.getUint16(e.local + 26, true) + dv.getUint16(e.local + 28, true);
+  const data = u8.subarray(start, start + e.csize);
+  if (e.method === 0) return data;
+  if (e.method !== 8 || typeof DecompressionStream !== 'function') throw new Error('unsupported');
+  if (e.usize > 40 * 1048576) throw new Error('too big');
+  const out = new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw')));
+  return new Uint8Array(await out.arrayBuffer());
+}
+const zipText = async (u8, idx, name) => { const b = await zipRead(u8, idx, name); return b ? new TextDecoder().decode(b) : null; };
+const parseXml = t => new DOMParser().parseFromString(t, 'application/xml');
+const byLocal = (root, name) => [...root.getElementsByTagName('*')].filter(el => el.localName === name);
+const relTargets = xml => {                        // rels 파일 → id → 대상 경로
+  const m = new Map();
+  if (xml) for (const r of byLocal(parseXml(xml), 'Relationship')) m.set(r.getAttribute('Id'), { target: r.getAttribute('Target') || '', type: r.getAttribute('Type') || '' });
+  return m;
+};
+const joinPath = (dir, rel) => {                    // 'ppt/slides' + '../media/a.png' → 'ppt/media/a.png'
+  if (rel.startsWith('/')) return rel.slice(1);
+  const out = dir.split('/').filter(Boolean);
+  for (const part of rel.split('/')) { if (part === '..') out.pop(); else if (part !== '.') out.push(part); }
+  return out.join('/');
+};
+const PIC_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp' };
+
+async function pptxFirstSlide(u8) {
+  const idx = zipIndex(u8);
+  const pres = await zipText(u8, idx, 'ppt/presentation.xml');
+  if (!pres) throw new Error('not pptx');
+  const pdoc = parseXml(pres);
+  const ids = byLocal(pdoc, 'sldId');
+  const sz = byLocal(pdoc, 'sldSz')[0];
+  const ratio = sz ? (Number(sz.getAttribute('cx')) / Number(sz.getAttribute('cy'))) || 16 / 9 : 16 / 9;
+  // 1) PowerPoint 가 저장할 때 넣어 둔 첫 슬라이드 그림 (없거나, 만든 프로그램이 빈 그림을 넣어 두기도 함)
+  const rootRels = relTargets(await zipText(u8, idx, '_rels/.rels'));
+  const thumbRel = [...rootRels.values()].find(r => /thumbnail/.test(r.type));
+  let thumbPath = thumbRel ? joinPath('', thumbRel.target) : null;
+  if (!thumbPath || !idx.has(thumbPath)) thumbPath = [...idx.keys()].find(k => /^docProps\/thumbnail\.(jpe?g|png)$/i.test(k));
+  let thumb = null;
+  if (thumbPath && PIC_MIME[extOf(thumbPath)]) {
+    const b = await zipRead(u8, idx, thumbPath);
+    if (b && b.length) thumb = { bytes: b, mime: PIC_MIME[extOf(thumbPath)] };
+  }
+  // 2) 첫 슬라이드의 글자 · 첫 사진 (그림이 없거나 비어 있을 때 씀)
+  const presRels = relTargets(await zipText(u8, idx, 'ppt/_rels/presentation.xml.rels'));
+  const rid = ids[0] && (ids[0].getAttribute('r:id') || [...ids[0].attributes].find(a => a.localName === 'id' && a.prefix === 'r')?.value);
+  const slidePath = rid && presRels.get(rid) ? joinPath('ppt', presRels.get(rid).target) : 'ppt/slides/slide1.xml';
+  const sxml = await zipText(u8, idx, slidePath);
+  if (!sxml) return { kind: 'slide', thumb, title: '', lines: [], image: null, count: ids.length, ratio };
+  const sdoc = parseXml(sxml);
+  let title = '';
+  const lines = [];
+  for (const sp of byLocal(sdoc, 'sp')) {
+    const ph = byLocal(sp, 'ph')[0];
+    const isTitle = ph && /^(title|ctrTitle)$/.test(ph.getAttribute('type') || '');
+    const paras = byLocal(sp, 'p').map(p => byLocal(p, 't').map(t => t.textContent).join('').trim()).filter(Boolean);
+    if (isTitle && !title) title = paras.join(' ');
+    else lines.push(...paras);
+  }
+  if (!title && lines.length) title = lines.shift();
+  let image = null;
+  const blip = byLocal(sdoc, 'blip')[0];
+  if (blip) {
+    const embed = [...blip.attributes].find(a => a.localName === 'embed')?.value;
+    const dir = slidePath.slice(0, slidePath.lastIndexOf('/'));
+    const srels = relTargets(await zipText(u8, idx, dir + '/_rels/' + slidePath.slice(dir.length + 1) + '.rels'));
+    const t = embed && srels.get(embed);
+    const pic = t && joinPath(dir, t.target);
+    if (pic && PIC_MIME[extOf(pic)]) {
+      const b = await zipRead(u8, idx, pic);
+      if (b && b.length && b.length < 8 * 1048576) image = { bytes: b, mime: PIC_MIME[extOf(pic)] };
+    }
+  }
+  return { kind: 'slide', thumb, title: title.slice(0, 120), lines: lines.slice(0, 7).map(l => l.slice(0, 90)), image, count: ids.length, ratio };
+}
+// 그림이 거의 한 색이면(빈 미리보기 그림) true. 판단할 수 없는 환경이면 false
+function looksBlank(img) {
+  try {
+    const c = document.createElement('canvas'); c.width = 32; c.height = 24;
+    const ctx = c.getContext('2d');
+    if (!ctx || !img.naturalWidth) return false;
+    ctx.drawImage(img, 0, 0, 32, 24);
+    const d = ctx.getImageData(0, 0, 32, 24).data;
+    let lo = 255, hi = 0;
+    for (let i = 0; i < d.length; i += 4) { const y = (d[i] * 3 + d[i + 1] * 6 + d[i + 2]) / 10; if (y < lo) lo = y; if (y > hi) hi = y; }
+    return hi - lo < 10;
+  } catch { return false; }
+}
+const docKind = name => {
+  const x = extOf(name);
+  return x === 'pdf' ? 'pdf' : /^(pptx|pptm|ppsx|potx)$/.test(x) ? 'pptx' : /^(ppt|pps|pot)$/.test(x) ? 'ppt-old' : null;
+};
+
 // ── 마우스를 올리면 커서를 따라다니는 미리보기 ──
 // 마우스를 쓰는 화면에서만. 잠깐 멈춰 있을 때만 받아와서(지나가기만 하면 요청 없음), 한 번 본 것은 다시 받지 않음
 const HP_DELAY_MS = 250;
@@ -3272,8 +3444,52 @@ async function hpLoad(f, v, seq) {
   const kind = kindOf(v.name);
   const lm = pubMetaFor(f);
   const ck = f.id + (lm ? `:${lm.rev}:${lm.at}` : '');
+  const dk = docKind(v.name);
   try {
-    if (kind === 'image') {
+    if (dk === 'ppt-old') {
+      body.replaceChildren(hpMsg('예전 PowerPoint 형식(.ppt)은 미리보기가 없습니다 · .pptx 로 저장하면 첫 장이 보입니다.'));
+    } else if (dk) {
+      if (v.size > MAX_DOC_PREVIEW) { body.replaceChildren(hpMsg('파일이 커서 미리보기 없이 내려받아 확인해 주세요.')); return hpPlace(); }
+      let c = hpCache.get(ck);
+      if (!c) {
+        body.replaceChildren(hpMsg(dk === 'pdf' ? '첫 페이지를 그리는 중…' : '첫 슬라이드를 여는 중…'));
+        const bytes = await fileBytes(f);
+        if (seq !== hp.seq) return;
+        if (dk === 'pdf') {
+          const r = await pdfFirstPage(bytes);
+          c = { kind: dk, image: { bytes: r.bytes, mime: 'image/png', blob: null, data: null }, count: r.pages };
+        } else {
+          c = await pptxFirstSlide(bytes);
+          if (c.image) Object.assign(c.image, { blob: null, data: null });
+          if (c.thumb) Object.assign(c.thumb, { blob: null, data: null });
+        }
+        hpCache.set(ck, c);
+      }
+      if (seq !== hp.seq) return;
+      const sub = $('hover-pv').querySelector('.hp-sub');
+      if (c.count) sub.textContent += ` · ${c.count}${dk === 'pdf' ? '쪽' : '장'}`;
+      let drew = false;
+      if (c.kind === 'pdf' || (c.thumb && !c.thumbBlank)) {   // 그림으로 된 첫 장
+        const img = document.createElement('img');
+        img.className = 'doc'; img.alt = v.name + ' 첫 장';
+        const ok = await showImage(img, c.kind === 'pdf' ? c.image : c.thumb);
+        if (seq !== hp.seq) return;
+        if (c.kind === 'pdf') { if (!ok) throw new Error('decode'); drew = true; }
+        else if (ok && !(c.thumbBlank = looksBlank(img))) drew = true;
+        if (drew) body.replaceChildren(img);
+      }
+      if (!drew) {
+        // 글자로 만든 첫 슬라이드 카드
+        const card = document.createElement('div');
+        card.className = 'hp-slide';
+        card.style.aspectRatio = String(c.ratio || 16 / 9);
+        if (c.title) { const t = document.createElement('div'); t.className = 't'; t.textContent = c.title; card.append(t); }
+        for (const line of c.lines || []) { const l = document.createElement('div'); l.className = 'l'; l.textContent = line; card.append(l); }
+        if (!c.title && !(c.lines || []).length && !c.image) { const n = document.createElement('div'); n.className = 'none'; n.textContent = '(첫 슬라이드에 글자가 없습니다)'; card.append(n); }
+        body.replaceChildren(card);
+        if (c.image) { const img = document.createElement('img'); img.alt = ''; card.append(img); await showImage(img, c.image); }
+      }
+    } else if (kind === 'image') {
       if (v.size > MAX_IMAGE_PREVIEW) { body.replaceChildren(hpMsg('사진이 커서 미리보기 없이 내려받아 확인해 주세요.')); return hpPlace(); }
       let c = hpCache.get(ck);
       if (!c) {
@@ -3303,8 +3519,10 @@ async function hpLoad(f, v, seq) {
       body.replaceChildren(hpMsg('이 형식은 미리보기가 없습니다 · 내려받아 확인해 주세요.'));
     }
     while (hpCache.size > 40) hpCache.delete(hpCache.keys().next().value);
-  } catch {
-    if (seq === hp.seq) body.replaceChildren(hpMsg('미리보기를 불러오지 못했습니다.'));
+  } catch (e) {
+    if (seq === hp.seq) body.replaceChildren(hpMsg(e && e.code === 'pdfjs'
+      ? 'PDF 미리보기 도구를 불러오지 못했습니다 · 인터넷 연결을 확인하거나 내려받아 확인해 주세요.'
+      : '미리보기를 불러오지 못했습니다.'));
   }
   if (seq === hp.seq) hpPlace();
 }

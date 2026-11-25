@@ -281,6 +281,48 @@
     .post-header .date   { font-size: 12px; color: var(--muted); margin-top: 1px; }
     .post-content { font-size: 15px; color: var(--text); white-space: pre-wrap; word-break: break-word; line-height: 1.7; padding-left: 54px; }
 
+    /* 게시판 사진 */
+    #compose.drag { border-color: var(--accent-ink); box-shadow: 0 0 0 3px var(--accent-soft); }
+    #compose-footer .grow { flex: 1; }
+    #btn-photo { padding: 7px 12px; font-size: 13px; }
+    .pick-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .pick-grid:empty { display: none; }
+    .pick-item { position: relative; width: 92px; height: 92px; border-radius: 10px; overflow: hidden;
+                 border: 1px solid var(--border); background: var(--surface2); }
+    .pick-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .pick-item button {
+      position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%; border: none;
+      background: rgba(0,0,0,.6); color: #fff; font-size: 12px; line-height: 22px; cursor: pointer; padding: 0;
+    }
+    .pick-item .gif-tag, .pm-cell .gif-tag {
+      position: absolute; left: 5px; bottom: 5px; font-size: 10px; font-weight: 700; letter-spacing: .04em;
+      background: rgba(0,0,0,.6); color: #fff; padding: 1px 6px; border-radius: 6px; pointer-events: none;
+    }
+    .post-media { display: grid; gap: 6px; margin: 12px 0 0 54px; max-width: 560px; }
+    .post-media.n1 { grid-template-columns: 1fr; }
+    .post-media.n2, .post-media.n4 { grid-template-columns: 1fr 1fr; }
+    .post-media.n3 { grid-template-columns: 1fr 1fr 1fr; }
+    .pm-cell {
+      position: relative; border-radius: 12px; overflow: hidden; background: var(--surface2);
+      border: 1px solid var(--border); cursor: zoom-in; padding: 0; display: block; width: 100%;
+    }
+    .post-media:not(.n1) .pm-cell { aspect-ratio: 1 / 1; }
+    .post-media.n1 .pm-cell { max-height: 520px; }
+    .pm-cell img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .2s; }
+    .post-media.n1 .pm-cell img { height: auto; max-height: 520px; object-fit: contain; }
+    .pm-cell img.ok { opacity: 1; }
+    .pm-cell .pm-msg {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-size: 12px; color: var(--muted); text-align: center; padding: 8px;
+    }
+    .pm-cell.done .pm-msg { display: none; }
+    .post-content:empty { display: none; }
+    #lightbox .lb-wrap { position: relative; }
+    #lb-save {
+      position: absolute; right: 10px; bottom: 10px; border: none; border-radius: 99px; padding: 6px 14px;
+      background: rgba(0,0,0,.6); color: #fff; font: inherit; font-size: 12px; cursor: pointer;
+    }
+
     /* ═══════════════════════════════
        파일 전송
     ═══════════════════════════════ */
@@ -687,6 +729,8 @@
       .att { min-width: 0; }
       #gate .headline { font-size: 34px; }
       .post-content { padding-left: 0; }
+      .post-media { margin-left: 0; }
+      .pick-item { width: 76px; height: 76px; }
       .tab-btn { padding: 10px 12px; font-size: 13px; }
       #toast { right: 20px; }
       .file-row { flex-wrap: wrap; }
@@ -784,8 +828,12 @@
         <img id="compose-pic" src="" alt="" />
         <div class="me" id="compose-name"></div>
       </div>
-      <textarea id="post-input" placeholder="지금 무슨 생각을 하고 계신가요?" maxlength="1000" aria-label="게시글"></textarea>
+      <textarea id="post-input" placeholder="지금 무슨 생각을 하고 계신가요? (사진은 끌어다 놓거나 붙여넣어도 됩니다)" maxlength="1000" aria-label="게시글"></textarea>
+      <div class="pick-grid" id="pick-grid" aria-label="첨부할 사진"></div>
       <div id="compose-footer">
+        <button class="btn btn-ghost" id="btn-photo" type="button" title="사진 · GIF 첨부">📷 사진</button>
+        <input type="file" id="photo-input" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,image/avif,.png,.jpg,.jpeg,.gif,.webp,.bmp,.avif" multiple hidden />
+        <span class="grow"></span>
         <span id="char-count">0 / 1000</span>
         <button class="btn btn-primary" id="submit-btn">게시하기</button>
       </div>
@@ -977,7 +1025,10 @@
 
 <!-- ══════════════ 사진 ══════════════ -->
 <div class="backdrop" id="lightbox" data-close="lightbox">
-  <img id="lb-img" src="" alt="" />
+  <div class="lb-wrap">
+    <img id="lb-img" src="" alt="" />
+    <button id="lb-save" type="button" hidden>↓ 내려받기</button>
+  </div>
 </div>
 
 <!-- ══════════════ 내 정보 ══════════════ -->
@@ -1101,6 +1152,9 @@ const LIVE_FRESH_MS     = 90 * 1000;          // 보는 창: 마지막 저장이
 const LIVE_BEAT_MS      = 2 * 60 * 1000;      // 목록용 '수정 중' 표시를 새로 적는 간격
 const LIVE_META_FRESH_MS = 5 * 60 * 1000;     // 목록: 표시가 이보다 최근이면 '수정 중'
 const LIVE_WATCH_MS     = 1500;               // 보는 창: 올린 사람이 수정 중일 때 확인 간격
+const POST_MAX_IMAGES   = 4;                  // 게시글 하나에 붙일 수 있는 사진 수
+const POST_IMAGE_MB     = 10;                 // 게시글 사진 한 장 최대 크기 (GIF 도 원본 그대로 올림)
+const POST_IMAGE_EXTS   = new Set('png jpg jpeg gif webp bmp avif'.split(' '));
 const TABS              = ['rooms', 'board', 'files'];
 
 const TEXT_EXTS = new Set(('txt md markdown json jsonl py pyw js mjs ts tsx jsx vue svelte html htm '
@@ -1671,6 +1725,7 @@ function setReadOnly(message) {
   $('btn-send').disabled = true;
   $('post-input').disabled = true;
   $('submit-btn').disabled = true;
+  $('btn-photo').disabled = true;
   $('rv-invite').hidden = true;
   $('rv-leave').hidden = true;
   refreshUploadUI();
@@ -1679,6 +1734,7 @@ function setReadOnly(message) {
 function refreshUploadUI() {
   const canUpload = writable && !!cap.assets;
   $('btn-attach').hidden  = !canUpload;
+  $('btn-photo').hidden   = !canUpload;
   $('upload-card').hidden = !canUpload;
   $('upload-off').hidden  = canUpload || !assetsResolved;
   $('room-hint').hidden   = canUpload || !writable || !assetsResolved;
@@ -2282,6 +2338,8 @@ async function openImage(ctx, m) {
   const img = $('lb-img');
   img.alt = m.file.name;
   img.removeAttribute('src');
+  lbImage = null;
+  $('lb-save').hidden = true;
   openModal('lightbox');
   try { await showImage(img, await imageCache(ctx, m)); }
   catch { closeModal('lightbox'); toast('사진을 불러오지 못했습니다.', 'error'); }
@@ -2528,16 +2586,83 @@ function subscribePosts() {
   postLog.subscribe(renderPosts, () => { $('feed').innerHTML = emptyHtml('게시글을 불러오지 못했습니다. 페이지를 새로 열어 주세요.'); });
 }
 
+// ── 사진 ──
+// 사진은 공용 파일과 같은 방식으로 조각내어 assets 브랜치에 올리고, 글에는 조각 id 만 적습니다.
+// 피드에서는 화면에 보일 때만 받아오고(요청 절약), 한 번 받은 사진은 이 탭에서 다시 받지 않습니다.
+const postImgCache = new Map();               // 조각 id 묶음 → { bytes, mime, blob, data }
+const postImgKey = im => im.parts.join(',');
+function postImages(p) {
+  return (Array.isArray(p.images) ? p.images : []).filter(im =>
+    im && typeof im === 'object' && Array.isArray(im.parts) && im.parts.length
+    && im.parts.every(id => ASSET_ID_RE.test(String(id)))).slice(0, POST_MAX_IMAGES);
+}
+const postMime = im => IMAGE_MIME[extOf(im.name)]
+  || (/^image\/(png|jpeg|gif|webp|bmp|avif)$/.test(String(im.mime)) ? im.mime : 'image/png');
+async function postImgData(im) {
+  const key = postImgKey(im);
+  let c = postImgCache.get(key);
+  if (!c) {
+    c = { bytes: null, mime: postMime(im), blob: null, data: null, loading: null };
+    postImgCache.set(key, c);
+  }
+  if (!c.bytes) {
+    if (!c.loading) c.loading = fetchParts(im.parts).then(b => { c.bytes = b; }).finally(() => { c.loading = null; });
+    await c.loading;
+  }
+  return c;
+}
+async function loadPostImg(cell) {
+  if (cell.dataset.state) return;
+  cell.dataset.state = 'loading';
+  const p = posts.find(x => x.id === cell.dataset.pid);
+  const im = p && postImages(p)[Number(cell.dataset.i)];
+  const img = cell.querySelector('img'), msg = cell.querySelector('.pm-msg');
+  if (!im) return;
+  try {
+    const ok = await showImage(img, await postImgData(im));
+    if (!ok) throw new Error('decode');
+    img.classList.add('ok');
+    cell.classList.add('done');
+    cell.dataset.state = 'done';
+  } catch {
+    msg.textContent = '사진을 불러오지 못했습니다 · 눌러서 다시 시도';
+    cell.dataset.state = 'failed';
+  }
+}
+// 화면에 들어올 때 받기 (지원하지 않는 브라우저는 바로 받기)
+const postImgObserver = 'IntersectionObserver' in window
+  ? new IntersectionObserver(entries => {
+      for (const e of entries) if (e.isIntersecting) { postImgObserver.unobserve(e.target); loadPostImg(e.target); }
+    }, { rootMargin: '400px 0px' })
+  : null;
+function watchPostImages(root) {
+  for (const cell of root.querySelectorAll('.pm-cell:not([data-state])')) {
+    if (postImgObserver) postImgObserver.observe(cell); else loadPostImg(cell);
+  }
+}
+function postMediaHtml(p) {
+  const ims = postImages(p);
+  if (!ims.length) return '';
+  return `<div class="post-media n${ims.length}">` + ims.map((im, i) => {
+    const ratio = ims.length === 1 && im.w > 0 && im.h > 0 ? ` style="aspect-ratio:${Math.round(im.w)} / ${Math.round(im.h)}"` : '';
+    const gif = postMime(im) === 'image/gif' ? '<span class="gif-tag">GIF</span>' : '';
+    return `<button class="pm-cell" type="button" data-act="post-img" data-pid="${esc(p.id)}" data-i="${i}"${ratio}
+              title="${esc(im.name || '사진')}" aria-label="사진 크게 보기: ${esc(im.name || '사진')}">
+              <img alt="${esc(im.name || '')}" /><span class="pm-msg">불러오는 중…</span>${gif}</button>`;
+  }).join('') + '</div>';
+}
+
+let postsHtml = '';
 async function renderPosts(items) {
   const seq = ++postsSeq;
-  posts = items.filter(p => typeof p.content === 'string')
+  posts = items.filter(p => typeof p.content === 'string' && (p.content.trim() || postImages(p).length))
                .sort((a, b) => (Number(b.t) || 0) - (Number(a.t) || 0)).slice(0, LIST_LIMIT);
   await profilesFor(posts.map(p => p.uid));
   if (seq !== postsSeq) return;
   const feed = $('feed');
-  if (!posts.length) { feed.innerHTML = emptyHtml('첫 번째 글을 작성해 보세요.', '✦'); return; }
-  feed.innerHTML = posts.map(p => `
-    <div class="post-card">
+  if (!posts.length) { postsHtml = ''; feed.innerHTML = emptyHtml('첫 번째 글을 작성해 보세요.', '✦'); return; }
+  const cards = posts.map(p => `
+    <div class="post-card" data-pid="${esc(p.id)}">
       <div class="post-header">
         <img src="${esc(pAvatar(p.uid))}" alt="" />
         <div class="meta">
@@ -2546,37 +2671,136 @@ async function renderPosts(items) {
         </div>
         ${p.uid === me.id && writable ? `<button class="btn btn-danger" data-act="del-post" data-id="${esc(p.id)}">삭제</button>` : ''}
       </div>
-      <div class="post-content">${esc(p.content)}</div>
-    </div>`).join('');
+      <div class="post-content">${esc(p.content)}</div>${postMediaHtml(p)}
+    </div>`);
+  const html = cards.join('');
+  if (html === postsHtml) return;                     // 달라진 게 없으면 그대로 (사진도 다시 그리지 않음)
+  postsHtml = html;
+  // 이미 그려 둔 카드는 그대로 두어 사진이 깜빡이지 않게: 같은 글이면 기존 요소를 다시 씀
+  const old = new Map([...feed.querySelectorAll('.post-card[data-pid]')].map(el => [el.dataset.pid, el]));
+  const tpl = document.createElement('template');
+  const nodes = posts.map((p, i) => {
+    const prev = old.get(p.id);
+    if (prev && prev.dataset.html === cards[i]) return prev;
+    tpl.innerHTML = cards[i].trim();
+    const el = tpl.content.firstElementChild;
+    el.dataset.html = cards[i];
+    return el;
+  });
+  feed.replaceChildren(...nodes);
+  watchPostImages(feed);
 }
 
+// ── 글쓰기: 첨부할 사진 ──
+let picks = [];                               // { file, url, w, h }
+function imgSize(url) {
+  return new Promise(r => {
+    const im = new Image();
+    im.onload = () => r({ w: im.naturalWidth, h: im.naturalHeight });
+    im.onerror = () => r(null);
+    im.src = url;
+  });
+}
+async function addPicks(list) {
+  if (!writable || !cap.assets) { toast(MSG.readonly, 'error'); return; }
+  const incoming = Array.from(list || []).filter(f => f && f.size >= 0);
+  for (const f of incoming) {
+    let name = f.name || '';
+    if (!extOf(name) && /^image\//.test(f.type)) {           // 붙여넣은 화면 캡처 등은 이름이 없음
+      name = `붙여넣은 사진.${({ 'image/jpeg': 'jpg' })[f.type] || f.type.slice(6).replace('+xml', '') || 'png'}`;
+    }
+    if (!POST_IMAGE_EXTS.has(extOf(name))) { toast(`'${f.name || '파일'}' 은(는) 사진이 아닙니다. PNG · JPG · GIF · WEBP 를 올려 주세요.`, 'error'); continue; }
+    if (picks.length >= POST_MAX_IMAGES) { toast(`사진은 한 글에 ${POST_MAX_IMAGES}장까지 붙일 수 있습니다.`, 'error'); break; }
+    if (f.size > POST_IMAGE_MB * 1048576) { toast(`'${name}' 이(가) 너무 큽니다. 사진 한 장은 ${POST_IMAGE_MB}MB 까지입니다.`, 'error'); continue; }
+    const url = URL.createObjectURL(f);
+    const size = await imgSize(url);
+    if (!size) { URL.revokeObjectURL(url); toast(`'${name}' 을(를) 사진으로 열 수 없습니다.`, 'error'); continue; }
+    picks.push({ file: f, name, url, w: size.w, h: size.h });
+  }
+  paintPicks();
+}
+function paintPicks() {
+  $('pick-grid').innerHTML = picks.map((pk, i) => `
+    <div class="pick-item"><img src="${esc(pk.url)}" alt="${esc(pk.name)}" />
+      ${extOf(pk.name) === 'gif' ? '<span class="gif-tag">GIF</span>' : ''}
+      <button type="button" data-rm="${i}" aria-label="${esc(pk.name)} 빼기" title="빼기">✕</button></div>`).join('');
+  $('btn-photo').textContent = picks.length ? `📷 사진 ${picks.length}/${POST_MAX_IMAGES}` : '📷 사진';
+}
+function clearPicks() {
+  for (const pk of picks) URL.revokeObjectURL(pk.url);
+  picks = [];
+  paintPicks();
+}
+
+let posting = false;
 async function submitPost() {
+  if (posting) return;
   const input = $('post-input');
   const content = input.value.trim().slice(0, 1000);
-  if (!content) { toast('내용을 입력해 주세요.'); return; }
+  if (!content && !picks.length) { toast('내용을 입력하거나 사진을 붙여 주세요.'); return; }
   if (!writable) { toast(MSG.readonly, 'error'); return; }
+  if (picks.length && !cap.assets) { toast(MSG.noAssets, 'error'); return; }
+  posting = true;
   const btn = $('submit-btn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
+  const uploaded = [];                        // 실패하면 지울 조각
   try {
-    await postLog.append({ id: newId(), t: Date.now(), content });
+    const images = [];
+    for (let i = 0; i < picks.length; i++) {
+      const pk = picks[i];
+      const label = picks.length > 1 ? `사진 ${i + 1}/${picks.length}` : '사진';
+      const bytes = new Uint8Array(await pk.file.arrayBuffer());
+      const parts = await putParts(bytes, pr => { btn.textContent = `${label} ${Math.round(pr * 100)}%`; });
+      uploaded.push(...parts);
+      // 올린 사람은 다시 내려받지 않도록 바로 캐시에
+      postImgCache.set(parts.join(','), { bytes, mime: IMAGE_MIME[extOf(pk.name)] || 'image/png', blob: null, data: null, loading: null });
+      images.push({ name: pk.name.slice(0, 120), size: bytes.length, mime: IMAGE_MIME[extOf(pk.name)] || '', w: pk.w, h: pk.h, parts });
+    }
+    btn.innerHTML = '<span class="spinner"></span>';
+    const item = { id: newId(), t: Date.now(), content };
+    if (images.length) item.images = images;
+    await postLog.append(item);
     input.value = '';
     updateCharCount();
+    clearPicks();
     toast('게시글이 등록되었습니다. ✓', 'success');
   } catch (e) {
-    handleWriteError(e, '게시에 실패했습니다. 다시 시도해 주세요.');
+    if (uploaded.length) dropParts(uploaded);
+    if (picks.length && errCode(e) !== 'invalid_argument') toast(`사진을 올리지 못했습니다. ${uploadErrorText(e)}`, 'error');
+    else handleWriteError(e, '게시에 실패했습니다. 다시 시도해 주세요.');
   } finally {
+    posting = false;
     btn.disabled = !writable;
     btn.textContent = '게시하기';
   }
 }
 
 async function deletePost(id) {
-  if (!await askConfirm('게시글을 삭제할까요?', '삭제')) return;
+  const p = posts.find(x => x.id === id);
+  if (!await askConfirm(postImages(p || {}).length ? '게시글과 붙인 사진을 삭제할까요?' : '게시글을 삭제할까요?', '삭제')) return;
   try {
     await postLog.remove(id);
+    if (p) dropParts(postImages(p).flatMap(im => im.parts));   // 사진 조각도 정리
     toast('삭제되었습니다.');
   } catch (e) { handleWriteError(e, '삭제에 실패했습니다.'); }
+}
+
+// 크게 보기
+let lbImage = null;
+async function openPostImage(cell) {
+  const p = posts.find(x => x.id === cell.dataset.pid);
+  const im = p && postImages(p)[Number(cell.dataset.i)];
+  if (!im) return;
+  if (cell.dataset.state === 'failed') { delete cell.dataset.state; cell.querySelector('.pm-msg').textContent = '불러오는 중…'; loadPostImg(cell); return; }
+  const img = $('lb-img');
+  img.alt = im.name || '';
+  img.removeAttribute('src');
+  lbImage = im;
+  $('lb-save').hidden = false;
+  openModal('lightbox');
+  try { if (!await showImage(img, await postImgData(im))) throw new Error('decode'); }
+  catch { closeModal('lightbox'); toast('사진을 불러오지 못했습니다.', 'error'); }
 }
 
 function updateCharCount() {
@@ -3507,7 +3731,41 @@ function wire() {
   $('submit-btn').addEventListener('click', submitPost);
   $('feed').addEventListener('click', e => {
     const b = e.target.closest('[data-act="del-post"]');
-    if (b) deletePost(b.dataset.id);
+    if (b) { deletePost(b.dataset.id); return; }
+    const c = e.target.closest('[data-act="post-img"]');
+    if (c) openPostImage(c);
+  });
+  // 사진 첨부: 버튼 · 끌어다 놓기 · 붙여넣기
+  $('btn-photo').addEventListener('click', () => $('photo-input').click());
+  $('photo-input').addEventListener('change', e => { addPicks(e.target.files); e.target.value = ''; });
+  $('pick-grid').addEventListener('click', e => {
+    const b = e.target.closest('[data-rm]');
+    if (!b || posting) return;
+    const [pk] = picks.splice(Number(b.dataset.rm), 1);
+    if (pk) URL.revokeObjectURL(pk.url);
+    paintPicks();
+  });
+  const compose = $('compose');
+  const hasFiles = e => e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
+  compose.addEventListener('dragover', e => { if (!hasFiles(e) || !writable) return; e.preventDefault(); compose.classList.add('drag'); });
+  compose.addEventListener('dragleave', e => { if (!compose.contains(e.relatedTarget)) compose.classList.remove('drag'); });
+  compose.addEventListener('drop', e => {
+    compose.classList.remove('drag');
+    if (!hasFiles(e) || !writable) return;
+    e.preventDefault();
+    addPicks(e.dataTransfer.files);
+  });
+  $('post-input').addEventListener('paste', e => {
+    const imgs = [...(e.clipboardData && e.clipboardData.files || [])].filter(f => /^image\//.test(f.type));
+    if (!imgs.length) return;                 // 글자는 평소대로 붙여넣기
+    e.preventDefault();
+    addPicks(imgs);
+  });
+  $('lb-save').addEventListener('click', async e => {
+    e.stopPropagation();                      // 바깥 클릭으로 닫히지 않게
+    if (!lbImage) return;
+    try { await saveBytes(lbImage.name || 'image', (await postImgData(lbImage)).bytes); }
+    catch { toast('내려받지 못했습니다.', 'error'); }
   });
 
   // 파일 전송

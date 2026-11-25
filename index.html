@@ -318,11 +318,11 @@
     .pm-cell.done .pm-msg { display: none; }
     .post-content:empty { display: none; }
     /* 공개 범위 */
-    #post-scope {
+    .scope-select {
       max-width: 220px; padding: 7px 10px; border-radius: var(--radius); font: inherit; font-size: 13px;
       background: var(--surface2); color: var(--text); border: 1px solid var(--border); cursor: pointer;
     }
-    #post-scope.room { border-color: var(--accent-ink); color: var(--accent-ink); font-weight: 600; }
+    .scope-select.room { border-color: var(--accent-ink); color: var(--accent-ink); font-weight: 600; }
     #scope-hint { font-size: 12px; color: var(--accent-ink); margin-top: 8px; line-height: 1.5; }
     .scope-badge {
       display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 99px;
@@ -388,6 +388,42 @@
     .file-row .fn { font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .file-row .fd { font-size: 11px; color: var(--muted); margin-top: 2px; }
     .file-row .fa { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
+    .file-row.locked .fn { color: var(--muted); font-weight: 400; }
+    .scope-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; font-size: 13px; }
+    .scope-row label { color: var(--muted); font-weight: 600; }
+    #file-scope-hint { font-size: 12px; color: var(--accent-ink); flex-basis: 100%; line-height: 1.5; }
+    .list-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .list-head .section-label { margin-bottom: 10px; }
+    .sort-tg { display: inline-flex; border: 1px solid var(--border); border-radius: 99px; overflow: hidden; margin-bottom: 10px; }
+    .sort-tg button {
+      border: none; background: var(--surface); color: var(--muted); font: inherit; font-size: 12px;
+      padding: 4px 12px; cursor: pointer;
+    }
+    .sort-tg button.on { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+
+    /* 파일에 마우스를 올리면 커서를 따라다니는 미리보기 */
+    #hover-pv {
+      position: fixed; left: 0; top: 0; z-index: 150; pointer-events: none;
+      width: 340px; max-width: calc(100vw - 16px);
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      border-radius: 12px; box-shadow: var(--shadow); overflow: hidden;
+      animation: hpin .12s ease-out;
+    }
+    #hover-pv .hp-head { display: flex; gap: 8px; align-items: center; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+    #hover-pv .hp-ic { font-size: 18px; flex-shrink: 0; }
+    #hover-pv .hp-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #hover-pv .hp-sub { font-size: 11px; color: var(--muted); }
+    #hover-pv .hp-body { min-height: 60px; display: flex; align-items: center; justify-content: center; background: var(--surface2); }
+    #hover-pv .hp-body img { display: block; max-width: 100%; max-height: 260px; object-fit: contain; }
+    #hover-pv .hp-body pre {
+      margin: 0; width: 100%; max-height: 260px; overflow: hidden; padding: 10px 12px;
+      font: 11px/1.55 ui-monospace, 'SFMono-Regular', Consolas, 'D2Coding', monospace;
+      white-space: pre; background: var(--code-bg); color: var(--code-fg);
+      -webkit-mask-image: linear-gradient(#000 80%, transparent);
+              mask-image: linear-gradient(#000 80%, transparent);
+    }
+    #hover-pv .hp-msg { font-size: 12px; color: var(--muted); padding: 16px; text-align: center; line-height: 1.6; }
+    @keyframes hpin { from { opacity: 0; } to { opacity: 1; } }
 
     /* ── 공통 ── */
     .form-group { margin-bottom: 14px; }
@@ -755,7 +791,7 @@
       .post-content { padding-left: 0; }
       .post-media { margin-left: 0; }
       .post-locked { margin-left: 0; }
-      #post-scope { max-width: 140px; }
+      .scope-select { max-width: 140px; }
       .pick-item { width: 76px; height: 76px; }
       .tab-btn { padding: 10px 12px; font-size: 13px; }
       #toast { right: 20px; }
@@ -859,7 +895,7 @@
       <div id="scope-hint" hidden></div>
       <div id="compose-footer">
         <button class="btn btn-ghost" id="btn-photo" type="button" title="사진 · GIF 첨부">📷 사진</button>
-        <select id="post-scope" aria-label="공개 범위" title="누가 볼 수 있는지">
+        <select id="post-scope" class="scope-select" aria-label="공개 범위" title="누가 볼 수 있는지">
           <option value="">🌐 전체 공개</option>
         </select>
         <input type="file" id="photo-input" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,image/avif,.png,.jpg,.jpeg,.gif,.webp,.bmp,.avif" multiple hidden />
@@ -881,6 +917,13 @@
 
     <div class="section-card" id="upload-card" hidden>
       <div class="section-title">📤 파일 업로드 (최대 <span class="lim-file">20MB</span>)</div>
+      <div class="scope-row" id="file-scope-row" hidden>
+        <label for="file-scope">받는 사람</label>
+        <select id="file-scope" class="scope-select" aria-label="파일을 받을 사람">
+          <option value="">🌐 모두</option>
+        </select>
+        <span id="file-scope-hint" hidden></span>
+      </div>
       <div id="drop-zone" tabindex="0" role="button" aria-label="파일 올리기">
         <div class="dz-icon">☁️</div>
         <div class="dz-hint"><strong>클릭하거나 파일을 드래그</strong>하여 업로드</div>
@@ -896,7 +939,13 @@
     <div class="notice" id="upload-off" hidden>파일 저장소에 연결하는 중입니다. 잠시 후에도 이 안내가 보이면 페이지를 새로 열어 주세요.</div>
 
     <div>
-      <p class="section-label">업로드된 파일</p>
+      <div class="list-head">
+        <p class="section-label">업로드된 파일</p>
+        <div class="sort-tg" role="group" aria-label="정렬">
+          <button type="button" data-sort="new">최신순</button><button type="button" data-sort="old">오래된순</button>
+        </div>
+      </div>
+      <div class="feed-filter" id="file-filter" role="group" aria-label="파일 거르기" hidden></div>
       <div id="file-list">
         <div class="empty"><div class="spinner"></div></div>
       </div>
@@ -1052,6 +1101,11 @@
       <button class="btn btn-primary btn-sm" id="cf-ok">확인</button>
     </div>
   </div>
+</div>
+
+<div id="hover-pv" hidden aria-hidden="true">
+  <div class="hp-head"><span class="hp-ic"></span><div style="min-width:0"><div class="hp-name"></div><div class="hp-sub"></div></div></div>
+  <div class="hp-body"></div>
 </div>
 
 <!-- ══════════════ 사진 ══════════════ -->
@@ -1838,6 +1892,7 @@ function subscribePeople() {
 
 // ── 탭 ──
 function switchTab(name) {
+  if (typeof hpHide === 'function') hpHide();
   for (const n of TABS) {
     $('panel-' + n).classList.toggle('active', n === name);
     const b = $('tab-' + n);
@@ -1914,6 +1969,7 @@ function subscribeRooms() {
     if (current) onCurrentRoomChanged();
     paintScopeOptions();
     if (postLog.ready) renderPosts(postLog.items());
+    if (fileLog.ready) { filesHtml = ''; renderFiles(fileLog.items()); }
   }, () => {
     $('room-list').innerHTML = emptyHtml('방 목록을 불러오지 못했습니다. 페이지를 새로 열어 주세요.');
   });
@@ -2663,14 +2719,26 @@ async function viewOf(p, keys) {
   return { state: 'locked', content: '', images: [], room };
 }
 
-function paintScopeOptions() {
-  const sel = $('post-scope');
+function fillScope(sel, allLabel, roomLabel) {
   const cur = sel.value;
-  sel.innerHTML = '<option value="">🌐 전체 공개</option>'
-    + rooms.map(r => `<option value="${esc(r.id)}">🔒 ${esc(r.name || '이름 없는 방')} 방만</option>`).join('');
+  sel.innerHTML = `<option value="">${allLabel}</option>`
+    + rooms.map(r => `<option value="${esc(r.id)}">🔒 ${esc(r.name || '이름 없는 방')} ${roomLabel}</option>`).join('');
   sel.value = rooms.some(r => r.id === cur) ? cur : '';
-  sel.hidden = !rooms.length;
+}
+function paintScopeOptions() {
+  fillScope($('post-scope'), '🌐 전체 공개', '방만');
+  $('post-scope').hidden = !rooms.length;
   onScopeChange();
+  fillScope($('file-scope'), '🌐 모두', '방 사람들만');
+  $('file-scope-row').hidden = !rooms.length;
+  onFileScopeChange();
+}
+function onFileScopeChange() {
+  const sel = $('file-scope'), r = roomOf(sel.value);
+  sel.classList.toggle('room', !!r);
+  const hint = $('file-scope-hint');
+  hint.hidden = !r;
+  if (r) hint.textContent = `🔒 '${r.name || '이름 없는 방'}' 방 사람들만 받을 수 있습니다. 파일과 파일 이름은 방 비밀번호로 암호화되어 올라갑니다.`;
 }
 function onScopeChange() {
   const sel = $('post-scope'), r = roomOf(sel.value);
@@ -2958,42 +3026,122 @@ function updateCharCount() {
 }
 
 // ══════════════════════════════════════════════════════════
-// 파일 전송 (누구나 보는 공용 목록)
+// 파일 전송
+// ──────────────────────────────────────────────────────────
+// 모두에게   : { id, t, name, size, type, parts }                     — 그대로 저장
+// 방 사람들만: { id, t, scope: 방 id, e, parts }                      — 이름·크기·형식(e)과 파일 조각을
+//              그 방 비밀번호 키로 암호화. name 을 두지 않아 예전 화면은 이 파일을 아예 보여 주지 않음
 // ══════════════════════════════════════════════════════════
 const fileLog = new ChunkLog('files');
 let files = [];
 let filesSeq = 0;
+const fileDec = new Map();                    // 파일 id → 풀어 둔 이름 등
+let fileViews = new Map();                    // 파일 id → 화면에 쓰는 모습
+let fileFilter = '';                          // '' 전체 · 'public' 모두에게 보낸 것만 · 방 id
+let fileSort = local.get('board.files.sort', 'new') === 'old' ? 'old' : 'new';
 
 function subscribeFiles() {
   fileLog.subscribe(renderFiles, () => { filesHtml = ''; $('file-list').innerHTML = emptyHtml('파일 목록을 불러오지 못했습니다. 페이지를 새로 열어 주세요.'); });
 }
 
+// 파일 하나를 화면에 어떻게 보일지: show · locked(비밀번호 필요) · orphan(내 파일인데 방이 없어짐) · hide
+async function fileViewOf(f, keys) {
+  if (!f.scope) return { state: 'show', name: f.name, size: Number(f.size) || 0, type: f.type || '', iv: null, key: null, room: null };
+  const room = roomOf(f.scope);
+  if (!room) return f.uid === me.id ? { state: 'orphan', name: '열 수 없는 파일', size: 0, room: null } : { state: 'hide' };
+  const hit = fileDec.get(f.id);
+  if (hit && hit.eiv === f.e.iv) return Object.assign({}, hit.v, { room });
+  if (!keys.has(room.id)) keys.set(room.id, await loadKey(room.id));
+  const key = keys.get(room.id);
+  if (key) {
+    try {
+      const b = await decryptJSON(key, f.e);
+      const v = { state: 'show', name: String(b.name || 'file').slice(0, 200), size: Number(b.size) || 0,
+                  type: String(b.type || ''), iv: String(b.iv || ''), key };
+      fileDec.set(f.id, { eiv: f.e.iv, v });
+      return Object.assign({}, v, { room });
+    } catch {}
+  }
+  return { state: 'locked', name: '', size: 0, room };
+}
+const fileView = f => fileViews.get(f.id) || { state: 'show', name: f.name, size: Number(f.size) || 0, key: null, iv: null, room: null };
+async function fileBytes(f) {                 // 원본 바이트 (방 전용이면 풀어서)
+  const v = fileView(f);
+  if (v.state !== 'show') throw new Error('locked');
+  const raw = await fetchParts(f.parts);
+  return v.iv ? decryptBytes(v.key, v.iv, raw) : raw;
+}
+
+function paintFileFilter() {
+  const box = $('file-filter');
+  const seen = [...new Set(files.filter(f => f.scope).map(f => f.scope))].map(roomOf).filter(Boolean);
+  box.hidden = !files.some(f => f.scope);
+  if (fileFilter && fileFilter !== 'public' && !seen.some(r => r.id === fileFilter)) fileFilter = '';
+  box.innerHTML = [['', '전체'], ['public', '🌐 모두에게'], ...seen.map(r => [r.id, '🔒 ' + (r.name || '이름 없는 방')])]
+    .map(([v, t]) => `<button type="button" data-filter="${esc(v)}" class="${v === fileFilter ? 'on' : ''}">${esc(t)}</button>`).join('');
+  for (const b of document.querySelectorAll('.sort-tg [data-sort]')) b.classList.toggle('on', b.dataset.sort === fileSort);
+}
+
 let filesHtml = '';
 async function renderFiles(items) {
   const seq = ++filesSeq;
-  files = items.filter(f => typeof f.name === 'string' && Array.isArray(f.parts))
-               .sort((a, b) => (Number(b.t) || 0) - (Number(a.t) || 0)).slice(0, LIST_LIMIT);
-  await profilesFor(files.map(f => f.uid));
+  const valid = items.filter(f => Array.isArray(f.parts) && (f.scope
+    ? typeof f.scope === 'string' && f.e && typeof f.e.iv === 'string'
+    : typeof f.name === 'string'));
+  const keys = new Map(), views = new Map();
+  for (const f of valid) { const v = await fileViewOf(f, keys); if (v.state !== 'hide') views.set(f.id, v); }
   if (seq !== filesSeq) return;
+  // 보낸 시간 기준 정렬 (최신순 · 오래된순). 목록에는 최근 것부터 LIST_LIMIT 개만
+  const recent = valid.filter(f => views.has(f.id))
+    .sort((a, b) => (Number(b.t) || 0) - (Number(a.t) || 0) || (a.id < b.id ? 1 : -1)).slice(0, LIST_LIMIT);
+  await profilesFor(recent.map(f => f.uid));
+  if (seq !== filesSeq) return;
+  files = recent;
+  fileViews = views;
+  paintFileFilter();
+  let shown = files.filter(f => !fileFilter || (fileFilter === 'public' ? !f.scope : f.scope === fileFilter));
+  if (fileSort === 'old') shown = shown.slice().reverse();
   const list = $('file-list');
-  if (!files.length) { filesHtml = ''; list.innerHTML = emptyHtml('업로드된 파일이 없습니다.', '📂'); return; }
-  const html = files.map(f => {
-    const lm = pubMetaFor(f);
+  if (!shown.length) {
+    filesHtml = '';
+    list.innerHTML = emptyHtml(files.length ? '이 범위에는 아직 보낸 파일이 없습니다.' : '업로드된 파일이 없습니다.', '📂');
+    return;
+  }
+  const html = shown.map(f => {
+    const v = views.get(f.id);
     const mine = f.uid === me.id && writable;
-    const liveBtn = !liveCanEdit(f.name, f.size) ? ''
+    const when = `<span title="${esc(fmtDate(Number(f.t) || 0))}">${esc(fmtDate(Number(f.t) || 0))}</span>`;
+    const scope = v.room ? `<span class="scope-badge" title="'${esc(v.room.name || '')}' 방 사람들만 받을 수 있습니다">🔒 ${esc(v.room.name || '이름 없는 방')}</span>` : '';
+    const del = mine ? `<button class="btn btn-danger btn-sm" data-act="del-file" data-id="${esc(f.id)}" aria-label="파일 삭제">✕</button>` : '';
+    if (v.state !== 'show') {
+      return `
+    <div class="file-row locked" data-id="${esc(f.id)}">
+      <div class="fi">🔒</div>
+      <div class="fm">
+        <div class="fn">${v.state === 'locked' ? `'${esc(v.room.name || '이름 없는 방')}' 방 사람들에게 보낸 파일` : '나갔거나 삭제된 방에 보낸 파일'}</div>
+        <div class="fd">${when} · ${esc(pName(f.uid))}${scope}</div>
+      </div>
+      <div class="fa">
+        ${v.state === 'locked' ? `<button class="btn btn-ghost btn-sm" data-act="unlock-file" data-room="${esc(v.room.id)}">비밀번호 넣고 보기</button>` : ''}
+        ${del}
+      </div>
+    </div>`;
+    }
+    const lm = pubMetaFor(f);
+    const liveBtn = !liveCanEdit(v.name, v.size) ? ''
       : mine ? `<button class="btn-dl live" data-act="live-file" data-id="${esc(f.id)}">✎ 실시간 편집</button>`
              : `<button class="btn-dl alt" data-act="live-file" data-id="${esc(f.id)}">👁 보기</button>`;
     return `
-    <div class="file-row">
-      <div class="fi">${fileIcon(f.name)}</div>
+    <div class="file-row" data-id="${esc(f.id)}">
+      <div class="fi">${fileIcon(v.name)}</div>
       <div class="fm">
-        <div class="fn">${esc(f.name)}</div>
-        <div class="fd">${fmtSize(f.size)} · ${fmtDate(Number(f.t) || 0)} · ${esc(pName(f.uid))}${liveBadgeHtml(lm)}</div>
+        <div class="fn">${esc(v.name)}</div>
+        <div class="fd">${fmtSize(v.size)} · ${when} · ${esc(pName(f.uid))}${scope}${liveBadgeHtml(lm)}</div>
       </div>
       <div class="fa">
         ${liveBtn}
         <button class="btn-dl" data-act="dl-file" data-id="${esc(f.id)}"${lm ? ' title="고친 최신 내용으로 받습니다"' : ''}>↓ 다운로드</button>
-        ${mine ? `<button class="btn btn-danger btn-sm" data-act="del-file" data-id="${esc(f.id)}" aria-label="파일 삭제">✕</button>` : ''}
+        ${del}
       </div>
     </div>`;
   }).join('');
@@ -3001,15 +3149,24 @@ async function renderFiles(items) {
   filesHtml = html;
   list.innerHTML = html;
 }
+const rerenderFiles = () => { filesHtml = ''; if (fileLog.ready) renderFiles(fileLog.items()); };
 
 async function uploadFiles(list) {
   if (!list || !list.length) return;
   if (!writable) { toast(MSG.readonly, 'error'); return; }
   if (!cap.assets) { toast(MSG.noAssets, 'error'); return; }
-  for (const f of Array.from(list)) await uploadOne(f);
+  // 방 사람들만: 그 방 키가 있어야 함 (없으면 비밀번호를 받고 이어서 올림)
+  const room = roomOf($('file-scope').value);
+  let key = null;
+  if (room) {
+    key = await loadKey(room.id);
+    if (key && !await keyMatchesRoom(room, key)) { forgetKey(room.id); key = null; }
+    if (!key) { const keep = Array.from(list); askPassword(room.id, () => uploadFiles(keep)); return; }
+  }
+  for (const f of Array.from(list)) await uploadOne(f, room, key);
 }
 
-async function uploadOne(file) {
+async function uploadOne(file, room, key) {
   if (file.size > MAX_FILE_MB * 1048576) {
     toast(`'${file.name}' 파일이 너무 큽니다. 최대 ${MAX_FILE_MB}MB 까지 올릴 수 있습니다.`, 'error');
     return;
@@ -3018,10 +3175,22 @@ async function uploadOne(file) {
   setProgress('files', file.name, 0, '읽는 중');
   try {
     const raw = new Uint8Array(await file.arrayBuffer());
-    parts = await putParts(raw, p => setProgress('files', file.name, 4 + p * 92, '올리는 중'));
-    await fileLog.append({ id: newId(), t: Date.now(), name: file.name, size: file.size, type: file.type || '', parts });
+    let data = raw, iv = null;
+    if (key) {
+      setProgress('files', file.name, 3, '암호화하는 중');
+      ({ iv, data } = await encryptBytes(key, raw));
+    }
+    parts = await putParts(data, p => setProgress('files', file.name, 4 + p * 92, '올리는 중'));
+    const item = { id: newId(), t: Date.now(), parts };
+    if (room) {
+      item.scope = room.id;
+      item.e = await encryptJSON(key, { name: file.name, size: file.size, type: file.type || '', iv });
+    } else {
+      Object.assign(item, { name: file.name, size: file.size, type: file.type || '' });
+    }
+    await fileLog.append(item);
     setProgress('files', file.name, 100);
-    toast(`'${file.name}' 업로드 완료 ✓`, 'success');
+    toast(room ? `'${file.name}' 을(를) '${room.name || '방'}' 방 사람들에게 보냈습니다 ✓` : `'${file.name}' 업로드 완료 ✓`, 'success');
   } catch (err) {
     if (parts.length) dropParts(parts);
     if (errCode(err) === 'invalid_argument' && writeAnswer !== true) handleWriteError(err, '');
@@ -3034,10 +3203,12 @@ async function uploadOne(file) {
 async function downloadPublic(id, btn) {
   const f = files.find(x => x.id === id);
   if (!f) return;
+  const v = fileView(f);
+  if (v.state !== 'show') return;
   if (btn) btn.disabled = true;
   try {
     const d = pubMetaFor(f) && cap.live ? await readLiveContent(pubTarget(f)) : null;   // 고친 내용이 있으면 최신본
-    await saveBytes(f.name, d ? te.encode(d.text) : await fetchParts(f.parts));
+    await saveBytes(v.name, d ? te.encode(d.text) : await fileBytes(f));
   }
   catch { toast('파일을 불러오지 못했습니다.', 'error'); }
   finally { if (btn) btn.disabled = false; }
@@ -3046,16 +3217,114 @@ async function downloadPublic(id, btn) {
 async function deleteFile(id) {
   const f = files.find(x => x.id === id);
   if (!f) return;
-  if (!await askConfirm(`'${f.name}' 파일을 삭제할까요?`, '삭제')) return;
+  const v = fileView(f);
+  if (!await askConfirm(v.state === 'show' ? `'${v.name}' 파일을 삭제할까요?` : '이 파일을 삭제할까요?', '삭제')) return;
   try {
     await fileLog.remove(id);
     await dropParts(f.parts);
+    fileDec.delete(id);
     if (pubMeta.has(safeSeg(id))) {
       if (cap.live) await cap.live.delete('live/' + safeSeg(id)).catch(() => {});
       await cap.db.doc('live/' + safeSeg(id)).delete().catch(() => {});
     }
     toast('파일이 삭제되었습니다.');
   } catch (e) { handleWriteError(e, '삭제하지 못했습니다.'); }
+}
+
+// ── 마우스를 올리면 커서를 따라다니는 미리보기 ──
+// 마우스를 쓰는 화면에서만. 잠깐 멈춰 있을 때만 받아와서(지나가기만 하면 요청 없음), 한 번 본 것은 다시 받지 않음
+const HP_DELAY_MS = 250;
+const hpCan = () => { try { return window.matchMedia('(hover: hover) and (pointer: fine)').matches; } catch { return false; } };
+const hpCache = new Map();                    // 파일 id(+고친 판) → { kind, cache | text }
+const hp = { id: null, seq: 0, timer: null, x: 0, y: 0, raf: 0 };
+function hpPlace() {
+  hp.raf = 0;
+  const b = $('hover-pv');
+  if (b.hidden) return;
+  const pad = 18, w = b.offsetWidth, h = b.offsetHeight;
+  let x = hp.x + pad, y = hp.y + pad;
+  if (x + w > window.innerWidth - 8) x = hp.x - w - pad;      // 오른쪽이 모자라면 커서 왼쪽에
+  if (y + h > window.innerHeight - 8) y = window.innerHeight - h - 8;
+  b.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, y)}px)`;
+}
+function hpHide() {
+  clearTimeout(hp.timer);
+  hp.id = null; hp.seq++;
+  $('hover-pv').hidden = true;
+}
+function hpMsg(text) { const d = document.createElement('div'); d.className = 'hp-msg'; d.textContent = text; return d; }
+function hpShow(f) {
+  const v = fileView(f), b = $('hover-pv');
+  hp.id = f.id;
+  const seq = ++hp.seq;
+  clearTimeout(hp.timer);
+  b.querySelector('.hp-ic').textContent = v.state === 'show' ? fileIcon(v.name) : '🔒';
+  b.querySelector('.hp-name').textContent = v.state === 'show' ? v.name : '방 사람들에게 보낸 파일';
+  b.querySelector('.hp-sub').textContent = [v.state === 'show' ? fmtSize(v.size) : '', fmtTime(Number(f.t) || 0), pName(f.uid)].filter(Boolean).join(' · ');
+  const body = b.querySelector('.hp-body');
+  body.replaceChildren(hpMsg(v.state === 'show' ? '미리보기 불러오는 중…' : '🔒 비밀번호를 넣어야 볼 수 있습니다'));
+  b.hidden = false;
+  hpPlace();
+  if (v.state === 'show') hp.timer = setTimeout(() => hpLoad(f, v, seq), HP_DELAY_MS);
+}
+async function hpLoad(f, v, seq) {
+  const body = $('hover-pv').querySelector('.hp-body');
+  const kind = kindOf(v.name);
+  const lm = pubMetaFor(f);
+  const ck = f.id + (lm ? `:${lm.rev}:${lm.at}` : '');
+  try {
+    if (kind === 'image') {
+      if (v.size > MAX_IMAGE_PREVIEW) { body.replaceChildren(hpMsg('사진이 커서 미리보기 없이 내려받아 확인해 주세요.')); return hpPlace(); }
+      let c = hpCache.get(ck);
+      if (!c) {
+        const bytes = await fileBytes(f);
+        c = { kind, cache: { bytes, mime: IMAGE_MIME[extOf(v.name)] || 'image/png', blob: null, data: null } };
+        hpCache.set(ck, c);
+      }
+      if (seq !== hp.seq) return;
+      const img = document.createElement('img');
+      img.alt = v.name;
+      body.replaceChildren(img);
+      if (!await showImage(img, c.cache)) throw new Error('decode');
+    } else if (kind === 'text') {
+      if (v.size > MAX_PREVIEW_BYTES) { body.replaceChildren(hpMsg('파일이 커서 미리보기 없이 내려받아 확인해 주세요.')); return hpPlace(); }
+      let c = hpCache.get(ck);
+      if (!c) {
+        const d = lm && cap.live ? await readLiveContent(pubTarget(f)) : null;       // 고친 내용이 있으면 최신본
+        const text = d ? d.text : decodeText(await fileBytes(f));
+        c = { kind, text: text.split('\n').slice(0, 40).join('\n').slice(0, 4000) };
+        hpCache.set(ck, c);
+      }
+      if (seq !== hp.seq) return;
+      const pre = document.createElement('pre');
+      pre.textContent = c.text || '(빈 파일)';
+      body.replaceChildren(pre);
+    } else {
+      body.replaceChildren(hpMsg('이 형식은 미리보기가 없습니다 · 내려받아 확인해 주세요.'));
+    }
+    while (hpCache.size > 40) hpCache.delete(hpCache.keys().next().value);
+  } catch {
+    if (seq === hp.seq) body.replaceChildren(hpMsg('미리보기를 불러오지 못했습니다.'));
+  }
+  if (seq === hp.seq) hpPlace();
+}
+function wireHoverPreview() {
+  const list = $('file-list');
+  list.addEventListener('mouseover', e => {
+    if (!hpCan()) return;
+    const row = e.target.closest('.file-row[data-id]');
+    if (!row) { if (hp.id) hpHide(); return; }
+    if (row.dataset.id === hp.id) return;
+    const f = files.find(x => x.id === row.dataset.id);
+    if (f) hpShow(f); else hpHide();
+  });
+  list.addEventListener('mousemove', e => {
+    hp.x = e.clientX; hp.y = e.clientY;
+    if (hp.id && !hp.raf) hp.raf = requestAnimationFrame(hpPlace);
+  });
+  list.addEventListener('mouseleave', hpHide);
+  list.addEventListener('pointerdown', hpHide);
+  window.addEventListener('scroll', () => { if (hp.id) hpHide(); }, { passive: true });
 }
 
 // ══════════════════════════════════════════════════════════
@@ -3131,9 +3400,10 @@ const metaFresh = m => !!(m && m.editing && Date.now() - m.at < LIVE_META_FRESH_
 
 // 열 대상: 공용 파일 / 방 파일 (표시와 내용은 같은 경로, 다른 브랜치)
 function pubTarget(f) {
-  return { name: f.name, ownerId: f.uid, fid: f.id, key: null, ctx: null,
+  const v = fileView(f);                     // 방 전용 파일이면 고친 내용도 그 방 키로 암호화
+  return { name: v.name, ownerId: f.uid, fid: f.id, key: v.key || null, ctx: null,
            path: 'live/' + safeSeg(f.id),
-           original: async () => decodeText(await fetchParts(f.parts)) };
+           original: async () => decodeText(await fileBytes(f)) };
 }
 function roomTarget(ctx, m) {
   return { name: m.file.name, ownerId: m.uid, fid: m.id, key: ctx.key, ctx,
@@ -3885,7 +4155,7 @@ function wire() {
     const c = e.target.closest('[data-act="post-img"]');
     if (c) { openPostImage(c); return; }
     const u = e.target.closest('[data-act="unlock-post"]');
-    if (u) askPassword(u.dataset.room, () => rerenderPosts());
+    if (u) askPassword(u.dataset.room, () => { rerenderPosts(); rerenderFiles(); });
   });
   $('post-scope').addEventListener('change', onScopeChange);
   $('feed-filter').addEventListener('click', e => {
@@ -3939,9 +4209,25 @@ function wire() {
     const b = e.target.closest('[data-act]');
     if (!b) return;
     if (b.dataset.act === 'dl-file')  downloadPublic(b.dataset.id, b);
-    if (b.dataset.act === 'live-file') { const f = files.find(x => x.id === b.dataset.id); if (f) openLive(pubTarget(f)); }
+    if (b.dataset.act === 'live-file') { const f = files.find(x => x.id === b.dataset.id); if (f && fileView(f).state === 'show') openLive(pubTarget(f)); }
     if (b.dataset.act === 'del-file') deleteFile(b.dataset.id);
+    if (b.dataset.act === 'unlock-file') askPassword(b.dataset.room, () => { rerenderFiles(); rerenderPosts(); });
   });
+  $('file-scope').addEventListener('change', onFileScopeChange);
+  $('file-filter').addEventListener('click', e => {
+    const b = e.target.closest('[data-filter]');
+    if (!b) return;
+    fileFilter = b.dataset.filter;
+    rerenderFiles();
+  });
+  document.querySelector('.sort-tg').addEventListener('click', e => {
+    const b = e.target.closest('[data-sort]');
+    if (!b || b.dataset.sort === fileSort) return;
+    fileSort = b.dataset.sort;
+    local.set('board.files.sort', fileSort);
+    rerenderFiles();
+  });
+  wireHoverPreview();
 
   // 파일을 엉뚱한 곳에 떨어뜨렸을 때 브라우저가 그 파일을 열지 않도록
   window.addEventListener('dragover', e => e.preventDefault());

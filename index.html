@@ -317,6 +317,30 @@
     }
     .pm-cell.done .pm-msg { display: none; }
     .post-content:empty { display: none; }
+    /* 공개 범위 */
+    #post-scope {
+      max-width: 220px; padding: 7px 10px; border-radius: var(--radius); font: inherit; font-size: 13px;
+      background: var(--surface2); color: var(--text); border: 1px solid var(--border); cursor: pointer;
+    }
+    #post-scope.room { border-color: var(--accent-ink); color: var(--accent-ink); font-weight: 600; }
+    #scope-hint { font-size: 12px; color: var(--accent-ink); margin-top: 8px; line-height: 1.5; }
+    .scope-badge {
+      display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 99px;
+      background: var(--accent-soft); color: var(--accent-ink); margin-left: 6px; vertical-align: 1px; white-space: nowrap;
+      max-width: 180px; overflow: hidden; text-overflow: ellipsis;
+    }
+    .post-locked {
+      margin-left: 54px; padding: 12px 14px; border-radius: 10px; background: var(--surface2);
+      border: 1px dashed var(--border); font-size: 13px; color: var(--muted); line-height: 1.6;
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .post-locked .btn { padding: 5px 12px; font-size: 12px; }
+    .feed-filter { display: flex; gap: 6px; flex-wrap: wrap; margin: -6px 0 14px; }
+    .feed-filter button {
+      border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 99px;
+      padding: 4px 12px; font: inherit; font-size: 12px; cursor: pointer;
+    }
+    .feed-filter button.on { border-color: var(--accent-ink); color: var(--accent-ink); font-weight: 600; background: var(--accent-soft); }
     #lightbox .lb-wrap { position: relative; }
     #lb-save {
       position: absolute; right: 10px; bottom: 10px; border: none; border-radius: 99px; padding: 6px 14px;
@@ -730,6 +754,8 @@
       #gate .headline { font-size: 34px; }
       .post-content { padding-left: 0; }
       .post-media { margin-left: 0; }
+      .post-locked { margin-left: 0; }
+      #post-scope { max-width: 140px; }
       .pick-item { width: 76px; height: 76px; }
       .tab-btn { padding: 10px 12px; font-size: 13px; }
       #toast { right: 20px; }
@@ -830,8 +856,12 @@
       </div>
       <textarea id="post-input" placeholder="지금 무슨 생각을 하고 계신가요? (사진은 끌어다 놓거나 붙여넣어도 됩니다)" maxlength="1000" aria-label="게시글"></textarea>
       <div class="pick-grid" id="pick-grid" aria-label="첨부할 사진"></div>
+      <div id="scope-hint" hidden></div>
       <div id="compose-footer">
         <button class="btn btn-ghost" id="btn-photo" type="button" title="사진 · GIF 첨부">📷 사진</button>
+        <select id="post-scope" aria-label="공개 범위" title="누가 볼 수 있는지">
+          <option value="">🌐 전체 공개</option>
+        </select>
         <input type="file" id="photo-input" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,image/avif,.png,.jpg,.jpeg,.gif,.webp,.bmp,.avif" multiple hidden />
         <span class="grow"></span>
         <span id="char-count">0 / 1000</span>
@@ -840,6 +870,7 @@
     </div>
 
     <p class="section-label">최근 게시글</p>
+    <div class="feed-filter" id="feed-filter" role="group" aria-label="게시글 거르기" hidden></div>
     <div id="feed">
       <div class="empty"><div class="spinner"></div></div>
     </div>
@@ -1881,6 +1912,8 @@ function subscribeRooms() {
     roomsLoaded = true;
     renderRooms();
     if (current) onCurrentRoomChanged();
+    paintScopeOptions();
+    if (postLog.ready) renderPosts(postLog.items());
   }, () => {
     $('room-list').innerHTML = emptyHtml('방 목록을 불러오지 못했습니다. 페이지를 새로 열어 주세요.');
   });
@@ -1954,8 +1987,10 @@ async function openRoom(id) {
   askPassword(id);
 }
 
-function askPassword(id) {
+let pwUnlock = null;          // 방에 들어가지 않고 키만 받을 때 (게시판의 방 전용 글)
+function askPassword(id, onUnlock) {
   pendingRoom = id;
+  pwUnlock = onUnlock || null;
   const r = rooms.find(x => x.id === id);
   $('pw-title').textContent = r ? (r.name || '비밀번호 입력') : '비밀번호 입력';
   $('pw-input').value = '';
@@ -1979,7 +2014,8 @@ async function submitPassword() {
     if (!await keyMatchesRoom(r, key)) { showErr('비밀번호가 일치하지 않습니다.'); return; }
     await rememberKey(r.id, key);
     closeModal('modal-password');
-    enterRoom(r.id, key);
+    if (pwUnlock) { const cb = pwUnlock; pwUnlock = null; cb(key); }
+    else enterRoom(r.id, key);
   } catch {
     showErr('입장하지 못했습니다. 다시 해 주세요.');
   } finally { btn.disabled = false; }
@@ -2586,16 +2622,78 @@ function subscribePosts() {
   postLog.subscribe(renderPosts, () => { $('feed').innerHTML = emptyHtml('게시글을 불러오지 못했습니다. 페이지를 새로 열어 주세요.'); });
 }
 
+// ── 공개 범위 ──
+// 전체 공개 글: { id, t, content, images? }                         — 그대로 저장
+// 방 전용 글  : { id, t, scope: 방 id, e, parts }                   — 글과 사진 정보는 방 비밀번호 키로 암호화(e),
+//               사진 조각도 암호화해서 올림. parts 는 지울 때 쓰는 조각 id 목록(내용 없음)
+//   · 그 방에 들어 있는 사람만 목록에 보이고, 비밀번호를 넣어 둔 사람만 내용을 볼 수 있음
+//   · content 를 두지 않아서, 예전 화면은 이 글을 아예 보여 주지 않음
+const roomOf = id => rooms.find(r => r.id === id) || null;
+const postDec = new Map();                    // 글 id → { content, images } (방 전용 글을 풀어 둔 것)
+let postViews = new Map();                    // 글 id → 화면에 쓰는 모습
+let feedFilter = '';                          // '' 전체 · 'public' 전체 공개만 · 방 id
+
+function cleanImages(list, key) {
+  return (Array.isArray(list) ? list : []).filter(im =>
+    im && typeof im === 'object' && Array.isArray(im.parts) && im.parts.length
+    && im.parts.every(id => ASSET_ID_RE.test(String(id))) && (!key || typeof im.iv === 'string'))
+    .slice(0, POST_MAX_IMAGES).map(im => key ? Object.assign({}, im, { key }) : im);
+}
+function postImages(p) {                      // 화면에 보이는 사진 (방 전용 글은 풀어 둔 것)
+  const v = p && postViews.get(p.id);
+  return v ? v.images : cleanImages(p && p.images);
+}
+// 글 하나를 화면에 어떻게 보일지: show(보임) · locked(비밀번호 필요) · orphan(내 글인데 방이 없어짐) · hide
+async function viewOf(p, keys) {
+  if (!p.scope) return { state: 'show', content: p.content, images: cleanImages(p.images), room: null };
+  const room = roomOf(p.scope);
+  if (!room) return p.uid === me.id ? { state: 'orphan', content: '', images: [], room: null } : { state: 'hide' };
+  const hit = postDec.get(p.id);
+  if (hit && hit.iv === p.e.iv) return { state: 'show', content: hit.content, images: hit.images, room };
+  if (!keys.has(room.id)) keys.set(room.id, await loadKey(room.id));
+  const key = keys.get(room.id);
+  if (key) {
+    try {
+      const body = await decryptJSON(key, p.e);
+      const dec = { iv: p.e.iv, content: String(body.content || '').slice(0, 1000), images: cleanImages(body.images, key) };
+      postDec.set(p.id, dec);
+      return { state: 'show', content: dec.content, images: dec.images, room };
+    } catch {}                                // 비밀번호가 바뀌었거나 키가 오래됨 → 다시 물어봄
+  }
+  return { state: 'locked', content: '', images: [], room };
+}
+
+function paintScopeOptions() {
+  const sel = $('post-scope');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">🌐 전체 공개</option>'
+    + rooms.map(r => `<option value="${esc(r.id)}">🔒 ${esc(r.name || '이름 없는 방')} 방만</option>`).join('');
+  sel.value = rooms.some(r => r.id === cur) ? cur : '';
+  sel.hidden = !rooms.length;
+  onScopeChange();
+}
+function onScopeChange() {
+  const sel = $('post-scope'), r = roomOf(sel.value);
+  sel.classList.toggle('room', !!r);
+  const hint = $('scope-hint');
+  hint.hidden = !r;
+  if (r) hint.textContent = `🔒 '${r.name || '이름 없는 방'}' 방 사람들만 볼 수 있습니다. 글과 사진은 방 비밀번호로 암호화되어 올라갑니다.`;
+}
+function paintFeedFilter(hasRoomPosts) {
+  const box = $('feed-filter');
+  const seen = [...new Set([...postViews.values()].filter(v => v.room).map(v => v.room.id))].map(roomOf).filter(Boolean);
+  box.hidden = !hasRoomPosts;
+  if (feedFilter && feedFilter !== 'public' && !seen.some(r => r.id === feedFilter)) feedFilter = '';
+  box.innerHTML = [['', '전체'], ['public', '🌐 전체 공개'], ...seen.map(r => [r.id, '🔒 ' + (r.name || '이름 없는 방')])]
+    .map(([v, t]) => `<button type="button" data-filter="${esc(v)}" class="${v === feedFilter ? 'on' : ''}">${esc(t)}</button>`).join('');
+}
+
 // ── 사진 ──
 // 사진은 공용 파일과 같은 방식으로 조각내어 assets 브랜치에 올리고, 글에는 조각 id 만 적습니다.
+// 방 전용 글의 사진은 방 키로 암호화된 조각이라, 받은 뒤 풀어서 보여 줍니다.
 // 피드에서는 화면에 보일 때만 받아오고(요청 절약), 한 번 받은 사진은 이 탭에서 다시 받지 않습니다.
 const postImgCache = new Map();               // 조각 id 묶음 → { bytes, mime, blob, data }
 const postImgKey = im => im.parts.join(',');
-function postImages(p) {
-  return (Array.isArray(p.images) ? p.images : []).filter(im =>
-    im && typeof im === 'object' && Array.isArray(im.parts) && im.parts.length
-    && im.parts.every(id => ASSET_ID_RE.test(String(id)))).slice(0, POST_MAX_IMAGES);
-}
 const postMime = im => IMAGE_MIME[extOf(im.name)]
   || (/^image\/(png|jpeg|gif|webp|bmp|avif)$/.test(String(im.mime)) ? im.mime : 'image/png');
 async function postImgData(im) {
@@ -2606,7 +2704,10 @@ async function postImgData(im) {
     postImgCache.set(key, c);
   }
   if (!c.bytes) {
-    if (!c.loading) c.loading = fetchParts(im.parts).then(b => { c.bytes = b; }).finally(() => { c.loading = null; });
+    if (!c.loading) c.loading = (async () => {
+      const raw = await fetchParts(im.parts);
+      c.bytes = im.iv ? await decryptBytes(im.key, im.iv, raw) : raw;
+    })().finally(() => { c.loading = null; });
     await c.loading;
   }
   return c;
@@ -2614,8 +2715,7 @@ async function postImgData(im) {
 async function loadPostImg(cell) {
   if (cell.dataset.state) return;
   cell.dataset.state = 'loading';
-  const p = posts.find(x => x.id === cell.dataset.pid);
-  const im = p && postImages(p)[Number(cell.dataset.i)];
+  const im = postImages(posts.find(x => x.id === cell.dataset.pid))[Number(cell.dataset.i)];
   const img = cell.querySelector('img'), msg = cell.querySelector('.pm-msg');
   if (!im) return;
   try {
@@ -2640,8 +2740,7 @@ function watchPostImages(root) {
     if (postImgObserver) postImgObserver.observe(cell); else loadPostImg(cell);
   }
 }
-function postMediaHtml(p) {
-  const ims = postImages(p);
+function postMediaHtml(p, ims) {
   if (!ims.length) return '';
   return `<div class="post-media n${ims.length}">` + ims.map((im, i) => {
     const ratio = ims.length === 1 && im.w > 0 && im.h > 0 ? ` style="aspect-ratio:${Math.round(im.w)} / ${Math.round(im.h)}"` : '';
@@ -2651,35 +2750,66 @@ function postMediaHtml(p) {
               <img alt="${esc(im.name || '')}" /><span class="pm-msg">불러오는 중…</span>${gif}</button>`;
   }).join('') + '</div>';
 }
+function postBodyHtml(p, v) {
+  if (v.state === 'locked') {
+    return `<div class="post-locked">🔒 '${esc(v.room.name || '이름 없는 방')}' 방 사람들에게만 보이는 글입니다.
+      <button class="btn btn-ghost" type="button" data-act="unlock-post" data-room="${esc(v.room.id)}">비밀번호 넣고 보기</button></div>`;
+  }
+  if (v.state === 'orphan') {
+    return `<div class="post-locked">🔒 나갔거나 삭제된 방에만 보이던 글이라 내용을 열 수 없습니다. 지워도 됩니다.</div>`;
+  }
+  return `<div class="post-content">${esc(v.content)}</div>${postMediaHtml(p, v.images)}`;
+}
 
 let postsHtml = '';
 async function renderPosts(items) {
   const seq = ++postsSeq;
-  posts = items.filter(p => typeof p.content === 'string' && (p.content.trim() || postImages(p).length))
-               .sort((a, b) => (Number(b.t) || 0) - (Number(a.t) || 0)).slice(0, LIST_LIMIT);
-  await profilesFor(posts.map(p => p.uid));
+  const valid = items.filter(p => p.scope
+      ? typeof p.scope === 'string' && p.e && typeof p.e.iv === 'string'
+      : typeof p.content === 'string' && (p.content.trim() || cleanImages(p.images).length))
+    .sort((a, b) => (Number(b.t) || 0) - (Number(a.t) || 0));
+  // 방 전용 글 풀기 (방마다 키는 한 번만 꺼냄)
+  const keys = new Map(), views = new Map();
+  for (const p of valid) { const v = await viewOf(p, keys); if (v.state !== 'hide') views.set(p.id, v); }
   if (seq !== postsSeq) return;
+  const visible = valid.filter(p => views.has(p.id)).slice(0, LIST_LIMIT);
+  await profilesFor(visible.map(p => p.uid));
+  if (seq !== postsSeq) return;
+  posts = visible;
+  postViews = views;
+  const hasRoomPosts = posts.some(p => p.scope);
+  paintFeedFilter(hasRoomPosts);
+  const shown = posts.filter(p => !feedFilter || (feedFilter === 'public' ? !p.scope : p.scope === feedFilter));
   const feed = $('feed');
-  if (!posts.length) { postsHtml = ''; feed.innerHTML = emptyHtml('첫 번째 글을 작성해 보세요.', '✦'); return; }
-  const cards = posts.map(p => `
+  if (!shown.length) {
+    postsHtml = '';
+    feed.innerHTML = emptyHtml(posts.length ? '이 범위에는 아직 글이 없습니다.' : '첫 번째 글을 작성해 보세요.', '✦');
+    return;
+  }
+  const cards = shown.map(p => {
+    const v = views.get(p.id);
+    const badge = v.room ? `<span class="scope-badge" title="'${esc(v.room.name || '')}' 방 사람들만 볼 수 있습니다">🔒 ${esc(v.room.name || '이름 없는 방')}</span>`
+                : v.state === 'orphan' ? '<span class="scope-badge">🔒 방 전용</span>' : '';
+    return `
     <div class="post-card" data-pid="${esc(p.id)}">
       <div class="post-header">
         <img src="${esc(pAvatar(p.uid))}" alt="" />
         <div class="meta">
-          <div class="author">${esc(pName(p.uid))}</div>
+          <div class="author">${esc(pName(p.uid))}${badge}</div>
           <div class="date">${fmtDate(Number(p.t) || 0)}</div>
         </div>
         ${p.uid === me.id && writable ? `<button class="btn btn-danger" data-act="del-post" data-id="${esc(p.id)}">삭제</button>` : ''}
       </div>
-      <div class="post-content">${esc(p.content)}</div>${postMediaHtml(p)}
-    </div>`);
+      ${postBodyHtml(p, v)}
+    </div>`;
+  });
   const html = cards.join('');
   if (html === postsHtml) return;                     // 달라진 게 없으면 그대로 (사진도 다시 그리지 않음)
   postsHtml = html;
   // 이미 그려 둔 카드는 그대로 두어 사진이 깜빡이지 않게: 같은 글이면 기존 요소를 다시 씀
   const old = new Map([...feed.querySelectorAll('.post-card[data-pid]')].map(el => [el.dataset.pid, el]));
   const tpl = document.createElement('template');
-  const nodes = posts.map((p, i) => {
+  const nodes = shown.map((p, i) => {
     const prev = old.get(p.id);
     if (prev && prev.dataset.html === cards[i]) return prev;
     tpl.innerHTML = cards[i].trim();
@@ -2690,6 +2820,7 @@ async function renderPosts(items) {
   feed.replaceChildren(...nodes);
   watchPostImages(feed);
 }
+const rerenderPosts = () => { postsHtml = ''; if (postLog.ready) renderPosts(postLog.items()); };
 
 // ── 글쓰기: 첨부할 사진 ──
 let picks = [];                               // { file, url, w, h }
@@ -2740,6 +2871,14 @@ async function submitPost() {
   if (!content && !picks.length) { toast('내용을 입력하거나 사진을 붙여 주세요.'); return; }
   if (!writable) { toast(MSG.readonly, 'error'); return; }
   if (picks.length && !cap.assets) { toast(MSG.noAssets, 'error'); return; }
+  // 방 전용: 그 방의 키가 있어야 함 (없으면 비밀번호를 받고 이어서 게시)
+  const room = roomOf($('post-scope').value);
+  let key = null;
+  if (room) {
+    key = await loadKey(room.id);
+    if (key && !await keyMatchesRoom(room, key)) { forgetKey(room.id); key = null; }
+    if (!key) { askPassword(room.id, () => submitPost()); return; }
+  }
   posting = true;
   const btn = $('submit-btn');
   btn.disabled = true;
@@ -2751,20 +2890,30 @@ async function submitPost() {
       const pk = picks[i];
       const label = picks.length > 1 ? `사진 ${i + 1}/${picks.length}` : '사진';
       const bytes = new Uint8Array(await pk.file.arrayBuffer());
-      const parts = await putParts(bytes, pr => { btn.textContent = `${label} ${Math.round(pr * 100)}%`; });
+      const enc = key ? await encryptBytes(key, bytes) : null;          // 방 전용: 사진도 암호화
+      const parts = await putParts(enc ? enc.data : bytes, pr => { btn.textContent = `${label} ${Math.round(pr * 100)}%`; });
       uploaded.push(...parts);
-      // 올린 사람은 다시 내려받지 않도록 바로 캐시에
+      // 올린 사람은 다시 내려받지 않도록 바로 캐시에 (풀어 놓은 원본으로)
       postImgCache.set(parts.join(','), { bytes, mime: IMAGE_MIME[extOf(pk.name)] || 'image/png', blob: null, data: null, loading: null });
-      images.push({ name: pk.name.slice(0, 120), size: bytes.length, mime: IMAGE_MIME[extOf(pk.name)] || '', w: pk.w, h: pk.h, parts });
+      const im = { name: pk.name.slice(0, 120), size: bytes.length, mime: IMAGE_MIME[extOf(pk.name)] || '', w: pk.w, h: pk.h, parts };
+      if (enc) im.iv = enc.iv;
+      images.push(im);
     }
     btn.innerHTML = '<span class="spinner"></span>';
-    const item = { id: newId(), t: Date.now(), content };
-    if (images.length) item.images = images;
+    const item = { id: newId(), t: Date.now() };
+    if (room) {
+      item.scope = room.id;
+      item.e = await encryptJSON(key, { content, images });
+      item.parts = images.flatMap(im => im.parts);                    // 지울 때 쓰는 조각 id (내용 없음)
+    } else {
+      item.content = content;
+      if (images.length) item.images = images;
+    }
     await postLog.append(item);
     input.value = '';
     updateCharCount();
     clearPicks();
-    toast('게시글이 등록되었습니다. ✓', 'success');
+    toast(room ? `'${room.name || '방'}' 방 사람들에게만 게시했습니다. ✓` : '게시글이 등록되었습니다. ✓', 'success');
   } catch (e) {
     if (uploaded.length) dropParts(uploaded);
     if (picks.length && errCode(e) !== 'invalid_argument') toast(`사진을 올리지 못했습니다. ${uploadErrorText(e)}`, 'error');
@@ -2778,10 +2927,12 @@ async function submitPost() {
 
 async function deletePost(id) {
   const p = posts.find(x => x.id === id);
-  if (!await askConfirm(postImages(p || {}).length ? '게시글과 붙인 사진을 삭제할까요?' : '게시글을 삭제할까요?', '삭제')) return;
+  const parts = !p ? [] : p.scope ? (Array.isArray(p.parts) ? p.parts : []) : postImages(p).flatMap(im => im.parts);
+  if (!await askConfirm(parts.length ? '게시글과 붙인 사진을 삭제할까요?' : '게시글을 삭제할까요?', '삭제')) return;
   try {
     await postLog.remove(id);
-    if (p) dropParts(postImages(p).flatMap(im => im.parts));   // 사진 조각도 정리
+    postDec.delete(id);
+    if (parts.length) dropParts(parts);                        // 사진 조각도 정리
     toast('삭제되었습니다.');
   } catch (e) { handleWriteError(e, '삭제에 실패했습니다.'); }
 }
@@ -2789,8 +2940,7 @@ async function deletePost(id) {
 // 크게 보기
 let lbImage = null;
 async function openPostImage(cell) {
-  const p = posts.find(x => x.id === cell.dataset.pid);
-  const im = p && postImages(p)[Number(cell.dataset.i)];
+  const im = postImages(posts.find(x => x.id === cell.dataset.pid))[Number(cell.dataset.i)];
   if (!im) return;
   if (cell.dataset.state === 'failed') { delete cell.dataset.state; cell.querySelector('.pm-msg').textContent = '불러오는 중…'; loadPostImg(cell); return; }
   const img = $('lb-img');
@@ -3733,7 +3883,16 @@ function wire() {
     const b = e.target.closest('[data-act="del-post"]');
     if (b) { deletePost(b.dataset.id); return; }
     const c = e.target.closest('[data-act="post-img"]');
-    if (c) openPostImage(c);
+    if (c) { openPostImage(c); return; }
+    const u = e.target.closest('[data-act="unlock-post"]');
+    if (u) askPassword(u.dataset.room, () => rerenderPosts());
+  });
+  $('post-scope').addEventListener('change', onScopeChange);
+  $('feed-filter').addEventListener('click', e => {
+    const b = e.target.closest('[data-filter]');
+    if (!b) return;
+    feedFilter = b.dataset.filter;
+    rerenderPosts();
   });
   // 사진 첨부: 버튼 · 끌어다 놓기 · 붙여넣기
   $('btn-photo').addEventListener('click', () => $('photo-input').click());

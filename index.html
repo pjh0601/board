@@ -282,6 +282,7 @@
     .post-content { font-size: 15px; color: var(--text); white-space: pre-wrap; word-break: break-word; line-height: 1.7; padding-left: 54px; }
 
     /* 게시판 사진 */
+    .sending { opacity: .55; transition: opacity .2s; }
     #compose.drag { border-color: var(--accent-ink); box-shadow: 0 0 0 3px var(--accent-soft); }
     #compose-footer .grow { flex: 1; }
     #btn-photo { padding: 7px 12px; font-size: 13px; }
@@ -1248,11 +1249,11 @@ const LIST_LIMIT        = 100;                // 게시글·파일 목록에 보
 const CHECK_WORD        = 'board-room-v1';    // 비밀번호 확인용 문구 (암호화해서 저장)
 const LIVE_MAX_BYTES    = 500 * 1024;         // 실시간 편집은 이 크기 이하 텍스트만 (저장할 때마다 내용 전체가 쓰기 1회)
 const LIVE_BIG_BYTES    = 200 * 1024;         // 이보다 크면 저장 간격을 5초 이상으로 (올리고 받는 양이 커서)
-const LIVE_IDLE_MS      = 700;                // 입력을 멈추고 이만큼 지나면 저장
+const LIVE_IDLE_MS      = 400;                // 입력을 멈추고 이만큼 지나면 저장
 const LIVE_FRESH_MS     = 90 * 1000;          // 보는 창: 마지막 저장이 이보다 최근이면 '수정 중'
 const LIVE_BEAT_MS      = 2 * 60 * 1000;      // 목록용 '수정 중' 표시를 새로 적는 간격
 const LIVE_META_FRESH_MS = 5 * 60 * 1000;     // 목록: 표시가 이보다 최근이면 '수정 중'
-const LIVE_WATCH_MS     = 1500;               // 보는 창: 올린 사람이 수정 중일 때 확인 간격
+const LIVE_WATCH_MS     = 1000;               // 보는 창: 올린 사람이 수정 중일 때 확인 간격 (바뀐 게 없으면 무료)
 const POST_MAX_IMAGES   = 4;                  // 게시글 하나에 붙일 수 있는 사진 수
 const POST_IMAGE_MB     = 10;                 // 게시글 사진 한 장 최대 크기 (GIF 도 원본 그대로 올림)
 const POST_IMAGE_EXTS   = new Set('png jpg jpeg gif webp bmp avif'.split(' '));
@@ -1479,8 +1480,21 @@ class ChunkLog {
     this.unsub = null;
     this.queue = Promise.resolve();
     this.ready = false;
+    // 보내는 중인 것: 서버에 올라가기 전에 미리 보여 주고, 다음 목록에 들어오면 지움
+    this.pending = new Map();                 // id → { item, sent, at }
+    this.hiding  = new Map();                 // 지우는 중인 id → 시각
+    this.onItems = null;
   }
   coll() { return cap.db.collection(this.path); }
+  emit() { if (this.ready && this.onItems) this.onItems(this.items()); }
+  isPending(id) { const p = this.pending.get(id); return !!(p && !p.sent); }
+  prune() {                                   // 목록에 들어온 것 · 오래된 것 정리
+    const have = new Set();
+    for (const b of this.docs.values()) for (const it of b.items) if (it && it.id) have.add(it.id);
+    const now = Date.now();
+    for (const [id, p] of this.pending) if (have.has(id) || (p.sent && now - p.at > 20000)) this.pending.delete(id);
+    for (const [id, t] of this.hiding) if (!have.has(id) || now - t > 20000) this.hiding.delete(id);
+  }
 
   subscribe(onItems, onError) {
     this.stop();
@@ -1493,19 +1507,25 @@ class ChunkLog {
       }
       this.docs = m;
       this.ready = true;
+      this.prune();
       onItems(this.items());
     }, e => { if (onError) onError(e); });
+    this.onItems = onItems;
   }
   stop() {
     if (this.unsub) { try { this.unsub(); } catch {} this.unsub = null; }
   }
   items() {
-    const out = [];
+    const out = [], seen = new Set();
     for (const [doc, b] of this.docs) {
       for (const it of b.items) {
-        if (it && typeof it === 'object' && typeof it.id === 'string') out.push(Object.assign({}, it, { uid: b.uid, doc }));
+        if (it && typeof it === 'object' && typeof it.id === 'string') {
+          seen.add(it.id);
+          if (!this.hiding.has(it.id)) out.push(Object.assign({}, it, { uid: b.uid, doc }));
+        }
       }
     }
+    for (const [id, p] of this.pending) if (!seen.has(id)) out.push(Object.assign({}, p.item, { uid: me.id, doc: null }));
     return out;
   }
   docIdFor(n) { return `${safeSeg(me.id)}~${n}`; }
@@ -1520,6 +1540,13 @@ class ChunkLog {
     return p;
   }
   append(item) {
+    this.pending.set(item.id, { item, sent: false, at: Date.now() });
+    this.emit();                              // 내 화면에는 바로
+    return this.write(item).then(
+      r => { const p = this.pending.get(item.id); if (p) { p.sent = true; p.at = Date.now(); } this.emit(); return r; },
+      e => { this.pending.delete(item.id); this.emit(); throw e; });
+  }
+  write(item) {
     return this.run(async () => {
       let n = this.maxN();
       for (let guard = 0; guard < 64; guard++, n++) {
@@ -1535,6 +1562,11 @@ class ChunkLog {
     });
   }
   remove(itemId) {
+    this.hiding.set(itemId, Date.now());
+    this.emit();                              // 내 화면에서는 바로 사라짐
+    return this.removeNow(itemId).catch(e => { this.hiding.delete(itemId); this.emit(); throw e; });
+  }
+  removeNow(itemId) {
     return this.run(async () => {
       for (const [docId, b] of this.docs) {
         if (b.uid !== me.id || !b.items.some(it => it && it.id === itemId)) continue;
@@ -2021,6 +2053,16 @@ async function renderRooms() {
 const keyStoreName = () => 'board.roomKeys.' + safeSeg(me.id);
 const keyBox = () => (isTempPC() ? sess : local);
 
+// 새 소식 확인 간격 알림 (gh-store): 방에 있으면 2초, 입력 · 보내기 직후 잠깐은 1초
+function pollHint(name, on) { try { window.__board && window.__board.pollHint && window.__board.pollHint(name, on); } catch {} }
+let pokedAt = 0;
+function poke() {                    // 입력할 때마다 부르지만 실제 알림은 2초에 한 번만
+  const now = Date.now();
+  if (now - pokedAt < 2000) return;
+  pokedAt = now;
+  try { window.__board && window.__board.poke && window.__board.poke(); } catch {}
+}
+
 // 화면에 적힌 크기 안내를 코드 값과 맞춤 (숫자를 바꾸면 안내도 같이 바뀜)
 const fmtLimit = bytes => bytes >= 1048576 ? `${+(bytes / 1048576).toFixed(1)}MB` : `${Math.round(bytes / 1024)}KB`;
 function paintLimits() {
@@ -2129,6 +2171,9 @@ function enterRoom(id, key, fallbackDoc) {
   ctx.liveUnsub = cap.db.collection(`rooms/${id}/live`).onSnapshot(
     snap => { ctx.liveChain = ctx.liveChain.then(() => onRoomLive(ctx, snap)).catch(() => {}); }, () => {});
   setPresence(id);
+  pollHint('room', true);
+  ctx.hinted = true;
+  poke();
   if (writable) focusSoon($('chat-input'));
 }
 
@@ -2137,6 +2182,7 @@ function leaveRoomQuietly() {
   const ctx = current;
   current = null;
   ctx.log.stop();
+  if (ctx.hinted) { pollHint('room', false); ctx.hinted = false; }
   if (ctx.liveUnsub) { try { ctx.liveUnsub(); } catch {} ctx.liveUnsub = null; }
   if (live && live.t.ctx === ctx) closeLive();
   for (const c of ctx.imgs.values()) if (c.blob) URL.revokeObjectURL(c.blob);
@@ -2270,6 +2316,7 @@ function paintChat(ctx, shown) {
   const nodes = shown.map(m => {
     let el = ctx.els.get(m.id);
     if (!el) { el = msgEl(ctx, m); ctx.els.set(m.id, el); }
+    el.classList.toggle('sending', ctx.log.isPending(m.id));      // 서버에 올라가는 중
     return el;
   });
 
@@ -2875,7 +2922,7 @@ async function renderPosts(items) {
     const badge = v.room ? `<span class="scope-badge" title="'${esc(v.room.name || '')}' 방 사람들만 볼 수 있습니다">🔒 ${esc(v.room.name || '이름 없는 방')}</span>`
                 : v.state === 'orphan' ? '<span class="scope-badge">🔒 방 전용</span>' : '';
     return `
-    <div class="post-card" data-pid="${esc(p.id)}">
+    <div class="post-card${postLog.isPending(p.id) ? ' sending' : ''}" data-pid="${esc(p.id)}">
       <div class="post-header">
         <img src="${esc(pAvatar(p.uid))}" alt="" />
         <div class="meta">
@@ -3148,7 +3195,7 @@ async function renderFiles(items) {
       : mine ? `<button class="btn-dl live" data-act="live-file" data-id="${esc(f.id)}">✎ 실시간 편집</button>`
              : `<button class="btn-dl alt" data-act="live-file" data-id="${esc(f.id)}">👁 보기</button>`;
     return `
-    <div class="file-row" data-id="${esc(f.id)}">
+    <div class="file-row${fileLog.isPending(f.id) ? ' sending' : ''}" data-id="${esc(f.id)}">
       <div class="fi">${fileIcon(v.name)}</div>
       <div class="fm">
         <div class="fn">${esc(v.name)}</div>
@@ -4366,6 +4413,7 @@ function wire() {
 
   // 게시판
   $('post-input').addEventListener('input', updateCharCount);
+  for (const id of ['chat-input', 'post-input', 'lc-input']) $(id).addEventListener('input', poke);
   $('submit-btn').addEventListener('click', submitPost);
   $('feed').addEventListener('click', e => {
     const b = e.target.closest('[data-act="del-post"]');

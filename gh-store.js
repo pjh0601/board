@@ -2,9 +2,10 @@
    · 신원: 이 PC(브라우저)에 저장되는 닉네임. GitHub 계정과는 무관합니다.
    · 저장: 문서는 data 브랜치, 첨부는 assets 브랜치 (Pages 브랜치를 건드리지 않아 사이트가 다시 빌드되지 않음)
            실시간 편집 중인 파일 내용은 live 브랜치 — data 브랜치를 건드리지 않아 다른 화면이 목록을 다시 받지 않음
-   · 실시간: data 브랜치의 파일 목록을 ETag 로 4초마다 확인 (바뀐 게 없으면 304 라서 사용량에 안 잡힘,
+   · 실시간: data 브랜치의 파일 목록을 ETag 로 확인 (바뀐 게 없으면 304 라서 사용량에 안 잡힘,
              바뀌었으면 그 응답이 곧 새 목록 → 변경 한 번에 요청 1회)
-             실시간 창이 열려 있는 동안은 1.5초마다, 탭을 안 보고 있을 때는 15초마다
+             확인 간격은 상황에 따라: 대화가 오가는 중 · 실시간 창 1초, 방에 들어가 있을 때 2초,
+             한동안 조용하면 3초, 탭을 안 보고 있을 때 15초
    · 토큰: 저장소에 쓰기 위한 열쇠. 코드가 아니라 각자 브라우저에만 저장됩니다.
    · 로그아웃: 이 PC 에 저장된 이름·토큰을 지워, 다음 사람이 토큰 없이 들어오지 못하게 합니다.
      '공용 PC' 로 들어오면 브라우저를 닫을 때 저절로 지워집니다 (sessionStorage). */
@@ -16,9 +17,12 @@
   const SEG = /^[A-Za-z0-9_\-.~:@+]{1,200}$/;
   const API_VER = '2022-11-28';
   const DATA_BRANCH = 'data', ASSET_BRANCH = 'assets', LIVE_BRANCH = 'live';
-  const POLL_MS = 4000;
-  const FAST_POLL_MS = 1500;
+  const ACTIVE_POLL_MS = 1000;                     // 방금 무언가 바뀌었거나 입력 중 · 실시간 창이 열려 있을 때
+  const WARM_POLL_MS = 2000;                       // 방에 들어가 있을 때 · 조금 전에 무언가 바뀌었을 때
+  const POLL_MS = 3000;                            // 한동안 조용할 때
   const HIDDEN_POLL_MS = 15000;                    // 탭을 안 보고 있을 때 (그 사이 변경은 한 번에 모아서 받음)
+  const ACTIVE_FOR_MS = 30000, WARM_FOR_MS = 120000;   // 마지막 변경 · 입력 뒤 이만큼은 빠르게
+  const THROTTLE_MS = 5 * 60000;                   // GitHub 가 '너무 잦다' 고 하면 이만큼은 4초 이상으로
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const rand = n => Array.from(crypto.getRandomValues(new Uint8Array(n || 8)), b => b.toString(16).padStart(2, '0')).join('');
   const enc = new TextEncoder();
@@ -132,7 +136,7 @@
           if (sha) body.sha = sha;
           const r = await gh('PUT', `${R()}/contents/${encPath(path)}`, { body });
           setTreeSha(branch, path, r.data.content.sha);
-          if (branch === DATA_BRANCH) noteOwnCommit(r.data.commit);
+          if (branch === DATA_BRANCH) { noteOwnCommit(r.data.commit); activity(); }
           return r.data;
         } catch (e) {
           if (e.code === 'conflict') { sha = await shaOf(path, branch); await sleep(250 + i * 400); continue; }
@@ -451,7 +455,7 @@
   let pollMode = 'tree';
   let treeEtag = null, rootSha = null, sameRoot = 0;
   let headEtag = null, headSha = null;
-  let polling = false, fastRefs = 0, wakePoll = null;
+  let polling = false;
 
   // 내가 올린 커밋이 '알고 있던 머리' 바로 다음이면 목록을 다시 받을 필요가 없음 ('branch' 방식에서만 쓰임)
   function noteOwnCommit(c) {
@@ -480,28 +484,50 @@
     return true;
   }
 
-  function napPoll(ms) {                         // 기다리다가 빠른 확인으로 바뀌거나 탭으로 돌아오면 바로 깨어남
-    return new Promise(r => {
-      const t = setTimeout(() => { wakePoll = null; r(); }, ms);
-      wakePoll = () => { clearTimeout(t); wakePoll = null; r(); };
-    });
+  // 확인 간격: 지금 상황에서 가장 짧은 것
+  let lastActivity = 0, lastPollAt = 0, throttleUntil = 0;
+  const hints = { live: 0, room: 0 };
+  function pollDelay() {
+    if (document.hidden) return HIDDEN_POLL_MS;
+    const since = Date.now() - lastActivity;
+    let d = (hints.live > 0 || since < ACTIVE_FOR_MS) ? ACTIVE_POLL_MS
+          : (hints.room > 0 || since < WARM_FOR_MS) ? WARM_POLL_MS : POLL_MS;
+    if (Date.now() < throttleUntil) d = Math.max(d, POLL_MS);
+    return d + Math.floor(Math.random() * d * 0.1);   // 여러 화면이 같은 순간에 몰리지 않게
   }
-  const pollDelay = () => (document.hidden ? HIDDEN_POLL_MS : fastRefs > 0 ? FAST_POLL_MS : POLL_MS);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && wakePoll) wakePoll(); });
+  // 기다리는 중에 상황이 바뀌면(입력 · 실시간 창 · 탭으로 돌아옴) 남은 시간을 줄임
+  let napTimer = null, napResolve = null, nextAt = 0;
+  function arm() {
+    clearTimeout(napTimer);
+    napTimer = setTimeout(() => { const r = napResolve; napResolve = null; if (r) r(); }, Math.max(0, nextAt - Date.now()));
+  }
+  function napUntil(t) { nextAt = t; return new Promise(r => { napResolve = r; arm(); }); }
+  function reschedule() {
+    if (!napResolve) return;
+    const t = Math.max(Date.now(), lastPollAt + pollDelay());
+    if (t < nextAt) { nextAt = t; arm(); }
+  }
+  function activity() { lastActivity = Date.now(); reschedule(); }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && napResolve) { nextAt = Date.now(); arm(); }   // 탭으로 돌아오면 바로 확인
+  });
   async function startPolling() {
     if (polling) return;
     polling = true;
+    lastPollAt = Date.now();
     let delay = pollDelay();
     for (;;) {
-      await napPoll(delay);
+      await napUntil(lastPollAt + delay);
       if (!ident) return;                          // 로그아웃함
+      lastPollAt = Date.now();
       try {
-        if (await pollOnce()) refreshAll();
+        if (await pollOnce()) { lastActivity = Date.now(); refreshAll(); }
         if (onlineCb) onlineCb(true);
         delay = pollDelay();
       } catch (e) {
+        if (e && e.code === 'rate_limited') throttleUntil = Date.now() + THROTTLE_MS;
         if (onlineCb) onlineCb(false, e);
-        delay = Math.min(delay * 2, 60000);
+        delay = Math.min(Math.max(delay, 2000) * 2, 60000);
       }
     }
   }
@@ -864,9 +890,13 @@
       ident = null;
       ssSet(BYEKEY, wasTemp ? 'temp' : '1');
     },
-    livePoll(on) {                                // 실시간 보기 창을 여닫을 때
-      fastRefs = Math.max(0, fastRefs + (on ? 1 : -1));
-      if (on && wakePoll) wakePoll();
+    livePoll(on) { this.pollHint('live', on); },  // 실시간 창을 여닫을 때 (예전 이름)
+    // 화면 상황 알림: 'live'(실시간 창) → 1초, 'room'(방에 들어가 있음) → 2초
+    pollHint(name, on) {
+      if (!(name in hints)) return;
+      hints[name] = Math.max(0, hints[name] + (on ? 1 : -1));
+      reschedule();
     },
+    poke: () => activity(),                       // 입력 · 보내기 등: 잠깐 동안 1초마다 확인
   };
 })();
